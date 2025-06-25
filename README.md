@@ -152,15 +152,26 @@ After comprehensive parameter tuning and robustness testing, all strategies now 
 - ✅ **Reduced Overtrading**: VWAP strategies now trade 600-800 times vs previous 6000+
 - ✅ **Fixed VWAP Logic**: Proper rolling standard deviation calculation vs hardcoded 0.5
 
-### Sample Results (20k Rows, Multiple Datasets)
+### Latest Results (50k Rows) - Advanced Quantitative Strategies
 
 | Strategy | Return (%) | Max DD (%) | Fills | Performance Notes |
 |----------|------------|------------|-------|-------------------|
-| VWAP_3.0 (Crypto) | +11.45 | -9.40 | 794 | Best performer, crypto markets |
-| MACrossover_5_20 (Stocks) | +0.31 | -0.43 | 473 | Consistent, low volatility |
-| Pairs_NVDA_GOOG (Conservative) | -0.34 | -0.34 | 478 | Ultra-conservative risk profile |
-| VWAP_4.0 (Crypto) | +1.76 | -10.99 | 659 | Moderate crypto exposure |
-| Momentum_5_10_2_3 (All) | +0.21 | -0.88 | 614 | Balanced momentum capture |
+| **StatArb_BTC_ETH_Aggressive** | **+45.66** | **-20.07** | **2426** | **🔥 Best performer - Statistical arbitrage** |
+| **StatArb_BTC_ETH_Balanced** | **+35.54** | **-20.07** | **2426** | **🚀 Excellent risk-adjusted returns** |
+| **VWAP_3.0 (Crypto)** | **+20.10** | **-15.50** | **1370** | **⭐ Strong VWAP mean reversion** |
+| **StatArb_BTC_ETH_Conservative** | **+8.74** | **-11.49** | **1289** | **💎 Steady conservative gains** |
+| **VWAP_2.5 (Crypto)** | **+7.52** | **-18.74** | **1367** | **📈 Reliable crypto momentum** |
+| StatArb_ETH_SOL_Conservative | +1.30 | -5.19 | 1044 | Low-volatility arbitrage |
+| MACrossover_3_15 (Stocks) | +0.44 | -0.46 | 473 | Consistent stock trends |
+
+### 🧠 **Advanced Quantitative Features Implemented:**
+
+1. **Kelly Criterion Position Sizing** - Optimal position sizes based on historical win/loss ratios
+2. **Garman-Klass Volatility** - Superior volatility estimation using OHLC data vs close-to-close
+3. **Hurst Exponent Regime Detection** - Automatically detect trending vs mean-reverting markets
+4. **Dynamic Hedge Ratios** - Real-time linear regression for optimal pair relationships
+5. **EWMA Z-Score Signals** - Exponentially weighted moving averages for responsive signals
+6. **Ornstein-Uhlenbeck Mean Reversion** - Half-life calculations for optimal entry/exit timing
 
 ### Automated Row-Cap Benchmarks
 
