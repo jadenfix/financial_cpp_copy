@@ -17,7 +17,7 @@ class VWAPReversion : public Strategy {
 private:
     // --- Parameters ---
     double deviation_multiplier_ = 2.0; // 'k' standard deviations for entry
-    double target_position_size_ = 100.0;
+    double target_position_size_ = 3.0; // Reduced from 100 to 3 shares
 
     // --- State per Symbol ---
     struct SymbolState {
@@ -31,7 +31,7 @@ private:
     std::map<std::string, SignalDirection> current_signal_state_; // Track long/short/flat
 
 public:
-    VWAPReversion(double deviation_multiplier = 2.0, double target_pos_size = 100.0)
+    VWAPReversion(double deviation_multiplier = 2.0, double target_pos_size = 3.0) // Changed default from 100 to 3
         : deviation_multiplier_(deviation_multiplier), target_position_size_(target_pos_size)
     {
          if (deviation_multiplier_ <= 0 || target_pos_size <= 0) {
@@ -64,22 +64,23 @@ public:
                 state.current_vwap = typical_price; // Use current price if volume is zero initially
             }
 
-             // --- Standard Deviation Calculation (Proper rolling std dev) ---
+             // --- Conservative Standard Deviation Calculation ---
              double price_vwap_diff = typical_price - state.current_vwap;
              state.price_vwap_diffs.push_back(price_vwap_diff);
              if (state.price_vwap_diffs.size() > static_cast<size_t>(state.rolling_stddev_window)) {
                  state.price_vwap_diffs.pop_front();
              }
              
-             double standard_deviation = 1.0; // Default fallback
-             if (state.price_vwap_diffs.size() >= 10) { // Need enough samples
+             double standard_deviation = typical_price * 0.02; // Default to 2% of price as conservative fallback
+             if (state.price_vwap_diffs.size() >= 30) { // Need more samples for stability
                  double mean_diff = std::accumulate(state.price_vwap_diffs.begin(), state.price_vwap_diffs.end(), 0.0) / state.price_vwap_diffs.size();
                  double sq_sum = 0.0;
                  for (double diff : state.price_vwap_diffs) {
                      sq_sum += std::pow(diff - mean_diff, 2);
                  }
-                 standard_deviation = std::sqrt(sq_sum / (state.price_vwap_diffs.size() - 1));
-                 if (standard_deviation < 0.01) standard_deviation = 0.01; // Minimum std dev to prevent tight bands
+                 double calculated_stddev = std::sqrt(sq_sum / (state.price_vwap_diffs.size() - 1));
+                 // Use the larger of calculated std dev or 1% of price to prevent tight bands
+                 standard_deviation = std::max(calculated_stddev, typical_price * 0.01);
              }
 
 
@@ -94,7 +95,6 @@ public:
             } else if (bar.Close < lower_band) {
                 desired_signal = SignalDirection::LONG;  // Price low, expect reversion up
             }
-            // Add exit logic? e.g., exit when price crosses back over VWAP. For now, just flip.
 
             // --- Generate Orders based on Target ---
             if (desired_signal != current_signal_state_[symbol]) {
@@ -102,6 +102,7 @@ public:
                            << " Close=" << bar.Close << " VWAP=" << state.current_vwap
                            << " LowBand=" << lower_band << " UpBand=" << upper_band
                            << " Signal=" << (desired_signal == SignalDirection::LONG ? "LONG" : desired_signal == SignalDirection::SHORT ? "SHORT" : "FLAT")
+                           << " StdDev=" << standard_deviation
                            << std::endl;
 
                 double target_quantity = 0.0;

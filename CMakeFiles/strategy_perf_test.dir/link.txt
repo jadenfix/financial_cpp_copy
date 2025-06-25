@@ -1,0 +1,1 @@
+/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/strategy_perf_test.dir/strategy_performance_test.cpp.o -o strategy_perf_test  libtrading_system_lib.a

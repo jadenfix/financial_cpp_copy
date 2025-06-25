@@ -15,18 +15,21 @@
 
 class MovingAverageCrossover : public Strategy {
 private:
-    size_t short_window_;
-    size_t long_window_;
-    double target_position_size_ = 100.0; // --- NEW: Target size for long/short ---
+    // --- Parameters ---
+    size_t short_window_ = 10;
+    size_t long_window_ = 20;
+    double target_position_size_ = 3.0; // Reduced from 100 to 3 shares
 
-    std::map<std::string, std::deque<double>> price_history_;
-    std::map<std::string, double> short_sma_;
-    std::map<std::string, double> long_sma_;
-    std::map<std::string, SignalDirection> current_signal_state_; // Renamed from last_signal_
+    // --- State per Symbol ---
+    struct SymbolState {
+        std::deque<double> price_history; // Stores historical prices for MA calculation
+    };
+    std::map<std::string, SymbolState> symbol_state_;
+    std::map<std::string, SignalDirection> current_signal_state_; // Track current long/short/flat state per symbol
 
 public:
-    MovingAverageCrossover(size_t short_window, size_t long_window, double target_pos_size = 100.0)
-        : short_window_(short_window), long_window_(long_window), target_position_size_(target_pos_size)
+    MovingAverageCrossover(size_t short_win = 10, size_t long_win = 20, double target_pos_size = 3.0) // Changed from 100 to 3
+        : short_window_(short_win), long_window_(long_win), target_position_size_(target_pos_size)
     {
         if (short_window_ == 0 || long_window_ <= short_window_ || target_position_size_ <= 0) {
             throw std::invalid_argument("Invalid parameters for MovingAverageCrossover");
@@ -45,39 +48,41 @@ public:
             double price = bar.Close;
 
             // Initialize state if symbol is new
-            if (price_history_.find(symbol) == price_history_.end()) {
-                price_history_[symbol]; // Creates deque
-                short_sma_[symbol] = 0.0; long_sma_[symbol] = 0.0;
+            if (symbol_state_.find(symbol) == symbol_state_.end()) {
+                symbol_state_[symbol]; // Creates SymbolState with empty deque
                 current_signal_state_[symbol] = SignalDirection::FLAT;
             }
 
             // Update history and SMAs
-            std::deque<double>& history = price_history_[symbol];
+            std::deque<double>& history = symbol_state_[symbol].price_history;
             history.push_back(price);
             if (history.size() > long_window_) { history.pop_front(); }
 
+            double short_sma = 0.0;
+            double long_sma = 0.0;
+
             if (history.size() >= short_window_) {
                 double short_sum = std::accumulate(history.end() - short_window_, history.end(), 0.0);
-                short_sma_[symbol] = short_sum / short_window_;
+                short_sma = short_sum / short_window_;
             } else continue; // Need short window data
 
             if (history.size() >= long_window_) {
                 double long_sum = std::accumulate(history.begin(), history.end(), 0.0);
-                long_sma_[symbol] = long_sum / long_window_;
+                long_sma = long_sum / long_window_;
 
                 // Determine desired signal based on SMA crossover
                 SignalDirection desired_signal = SignalDirection::FLAT;
                 constexpr double tolerance = 1e-9;
-                if (short_sma_[symbol] > long_sma_[symbol] + tolerance) {
+                if (short_sma > long_sma + tolerance) {
                     desired_signal = SignalDirection::LONG;
-                } else if (short_sma_[symbol] < long_sma_[symbol] - tolerance) {
+                } else if (short_sma < long_sma - tolerance) {
                     desired_signal = SignalDirection::SHORT;
                 }
 
-                // --- Generate Orders Based on Target Position ---
+                // Generate orders based on signal change
                 if (desired_signal != current_signal_state_[symbol]) {
                     std::cout << "CROSSOVER: " << symbol << " @ " << formatTimestampUTC(event.timestamp)
-                              << " ShortSMA=" << short_sma_[symbol] << " LongSMA=" << long_sma_[symbol]
+                              << " ShortSMA=" << short_sma << " LongSMA=" << long_sma
                               << " Signal=" << (desired_signal == SignalDirection::LONG ? "LONG" : desired_signal == SignalDirection::SHORT ? "SHORT" : "FLAT")
                               << std::endl;
 

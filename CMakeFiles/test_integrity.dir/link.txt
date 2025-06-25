@@ -1,0 +1,1 @@
+/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_integrity.dir/test_data_integrity.cpp.o -o test_integrity  libtrading_system_lib.a

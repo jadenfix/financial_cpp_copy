@@ -16,7 +16,7 @@ class OpeningRangeBreakout : public Strategy {
 private:
     // --- Parameters ---
     int opening_range_minutes_ = 30; // Duration of ORB period
-    double target_position_size_ = 100.0;
+    double target_position_size_ = 3.0; // Reduced from 100 to 3 shares
     // Add filter parameters later (e.g., volume multiplier)
 
     // --- State per Symbol ---
@@ -30,7 +30,7 @@ private:
     std::map<std::string, SignalDirection> current_signal_state_; // Track LONG/SHORT/FLAT breakout state
 
 public:
-    OpeningRangeBreakout(int range_minutes = 30, double target_pos_size = 100.0)
+    OpeningRangeBreakout(int range_minutes = 30, double target_pos_size = 3.0) // Changed from 100 to 3
         : opening_range_minutes_(range_minutes), target_position_size_(target_pos_size)
     {
         if (opening_range_minutes_ <= 0 || target_pos_size <= 0) {

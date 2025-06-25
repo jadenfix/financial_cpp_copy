@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtrading_system_lib.a CMakeFiles/trading_system_lib.dir/src/data/DataManager.cpp.o
+/usr/bin/ranlib libtrading_system_lib.a

@@ -21,7 +21,7 @@ private:
     size_t volume_avg_window_ = 10;  // Rolling average volume window
     double volume_multiplier_ = 2.0;   // Volume must be > 2x average
     size_t return_delta_window_ = 3;   // Look back 3 bars for positive/negative return delta
-    double target_position_size_ = 100.0;
+    double target_position_size_ = 3.0;
 
     // --- State per Symbol ---
     struct SymbolState {
@@ -31,7 +31,7 @@ private:
     std::map<std::string, SignalDirection> current_signal_state_;
 
 public:
-    MomentumIgnition(size_t price_window = 5, size_t vol_window = 10, double vol_mult = 2.0, size_t ret_window = 3, double target_pos_size = 100.0)
+    MomentumIgnition(size_t price_window = 5, size_t vol_window = 10, double vol_mult = 2.0, size_t ret_window = 3, double target_pos_size = 3.0)
         : price_breakout_window_(price_window), volume_avg_window_(vol_window),
           volume_multiplier_(vol_mult), return_delta_window_(ret_window), target_position_size_(target_pos_size)
     {

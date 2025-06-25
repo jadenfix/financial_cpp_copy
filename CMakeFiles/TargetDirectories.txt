@@ -1,0 +1,6 @@
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/trading_system_lib.dir
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/trading_system.dir
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/test_integrity.dir
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/strategy_perf_test.dir
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/edit_cache.dir
+/Users/jadenfix/financial_cpp_copy/CMakeFiles/rebuild_cache.dir
