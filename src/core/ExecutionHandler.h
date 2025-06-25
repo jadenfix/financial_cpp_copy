@@ -12,6 +12,7 @@
 class ExecutionHandler {
 private:
     EventQueue& event_queue_;
+    std::map<std::string, double> last_known_prices_; // Cache last prices for each symbol
 
 public:
     explicit ExecutionHandler(EventQueue& queue) : event_queue_(queue) {}
@@ -19,9 +20,27 @@ public:
     void handle_order_event(const OrderEvent& order_event, const MarketEvent& next_market_event) {
         if (order_event.order_type == OrderType::MARKET) {
             auto symbol_iter = next_market_event.data.find(order_event.symbol);
+            double fill_price = 0.0;
+            bool can_fill = false;
+            
             if (symbol_iter != next_market_event.data.end()) {
+                // Current market data available - use it
                 const PriceBar& next_bar = symbol_iter->second;
-                double fill_price = next_bar.Open;
+                fill_price = next_bar.Open;
+                last_known_prices_[order_event.symbol] = fill_price; // Update cache
+                can_fill = true;
+            } else {
+                // No current data - try to use last known price
+                auto last_price_iter = last_known_prices_.find(order_event.symbol);
+                if (last_price_iter != last_known_prices_.end()) {
+                    fill_price = last_price_iter->second;
+                    can_fill = true;
+                    std::cout << "SIM EXEC: Using last known price " << fill_price 
+                              << " for " << order_event.symbol << " (no current data)" << std::endl;
+                }
+            }
+
+            if (can_fill) {
                 double commission = calculate_commission(order_event.quantity, fill_price);
 
                 std::cout << "SIM EXEC: Order for " << order_event.quantity << " " << order_event.symbol
@@ -38,12 +57,19 @@ public:
                 );
                 event_queue_.push(std::move(fill_ev));
             } else {
-                std::cerr << "SIM EXEC WARN: No market data for " << order_event.symbol
-                          << " at " << formatTimestampUTC(next_market_event.timestamp) // Use formatter
+                std::cerr << "SIM EXEC WARN: No market data or last known price for " << order_event.symbol
+                          << " at " << formatTimestampUTC(next_market_event.timestamp) 
                           << " to fill order." << std::endl;
             }
         } else {
              std::cerr << "SIM EXEC WARN: Limit orders not implemented." << std::endl;
+        }
+    }
+
+    // Method to update price cache from market events (call from Backtester)
+    void update_price_cache(const MarketEvent& market_event) {
+        for (const auto& pair : market_event.data) {
+            last_known_prices_[pair.first] = pair.second.Close;
         }
     }
 

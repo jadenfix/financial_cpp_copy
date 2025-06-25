@@ -69,6 +69,31 @@ public:
         }
     }
 
+    // Alternative constructor that accepts pre-loaded DataManager
+    Backtester(
+        const DataManager& cached_data_manager,
+        std::unique_ptr<Strategy> strategy, // Takes ownership of strategy
+        double initial_cash = 100000.0,
+        double min_equity_buffer = 1000.0) // Optional: Allow setting buffer
+        : initial_cash_(initial_cash),
+          strategy_(std::move(strategy)), // Declaration order matched in initializer list
+          data_manager_(cached_data_manager), // Copy the cached data manager
+          minimum_equity_buffer_(min_equity_buffer)
+          // event_queue_ is default constructed
+    {
+        // Initialize components dependent on others after the initializer list
+        portfolio_ = std::make_unique<Portfolio>(initial_cash_);
+        execution_handler_ = std::make_unique<ExecutionHandler>(event_queue_); // Pass queue reference
+
+        // Link portfolio to strategy (essential for position awareness)
+        if (strategy_) {
+             strategy_->set_portfolio(portfolio_.get()); // Pass raw pointer (Strategy does not own Portfolio)
+        } else {
+             // Throw if strategy is null, indicating a setup error
+             throw std::runtime_error("Strategy provided to Backtester is null!");
+        }
+    }
+
     // --- Original Run Method (can keep or remove) ---
     void run() {
         if (!setup()) {
@@ -97,7 +122,6 @@ private:
         // Reset state for potentially running multiple times
         event_queue_ = EventQueue();
         pending_orders_.clear();
-        data_manager_ = DataManager();
         portfolio_ = std::make_unique<Portfolio>(initial_cash_);
         if(strategy_) strategy_->set_portfolio(portfolio_.get());
         else return false;
@@ -105,11 +129,16 @@ private:
         continue_backtest_ = true;
         event_count_ = 0;
 
-
-        if (!data_manager_.loadData(data_dir_)) {
-             std::cerr << "Failed to load market data from: " << data_dir_ << std::endl;
-             return false;
+        // Only load data if data_dir_ is set (first constructor)
+        if (!data_dir_.empty()) {
+            data_manager_ = DataManager();
+            if (!data_manager_.loadData(data_dir_)) {
+                 std::cerr << "Failed to load market data from: " << data_dir_ << std::endl;
+                 return false;
+            }
         }
+        // Otherwise, data_manager_ was already set in constructor (cached version)
+
         symbols_ = data_manager_.getAllSymbols();
         if (symbols_.empty()) {
              std::cerr << "No symbols loaded from data directory." << std::endl;
@@ -177,6 +206,7 @@ private:
             case EventType::MARKET: {
                 auto market_event = std::dynamic_pointer_cast<MarketEvent>(event);
                 if (market_event) {
+                    execution_handler_->update_price_cache(*market_event); // Update price cache first
                     execute_pending_orders(*market_event); // Execute orders based on *this* market data
                     portfolio_->update_market_values(market_event->data); // Update portfolio values
                     portfolio_->record_equity(market_event->timestamp);  // Record equity

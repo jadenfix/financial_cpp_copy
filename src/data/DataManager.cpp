@@ -58,8 +58,11 @@ bool DataManager::parseCsvFile(const fs::path& filePath, const std::string& symb
 
             // Now check if we got the expected number of columns
             if (cells.size() != EXPECTED_COLUMNS) {
-                std::cerr << "      Warning: Skipping row " << rowNumber << " in " << filePath.filename().string()
-                          << ". Expected " << EXPECTED_COLUMNS << " columns, found " << cells.size() << "." << std::endl;
+                // Only warn if not an empty line (common at end of files)
+                if (cells.size() > 0) {
+                    std::cerr << "      Warning: Skipping row " << rowNumber << " in " << filePath.filename().string()
+                              << ". Expected " << EXPECTED_COLUMNS << " columns, found " << cells.size() << "." << std::endl;
+                }
                 continue; // Skip this row
             }
 
