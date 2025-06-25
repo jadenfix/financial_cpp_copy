@@ -151,6 +151,45 @@ public:
 | Momentum_5_10_2_3 | 0.23 | -3.45 | $230 | 234 | $100,230 |
 | Pairs_MSFT_NVDA | 0.45 | -1.87 | $450 | 78 | $100,450 |
 
+### Automated Row-Cap Benchmarks
+
+To understand how data volume impacts strategy performance and runtime, run the helper script below. It executes the full strategy suite four times with different `--max-rows` limits (100 k, 500 k, 1 M, and unlimited) and aggregates the **COMBINED Strategy Comparison Results** tables into `results_row_caps.md`.
+
+```bash
+# From repository root
+bash scripts/run_row_caps.sh
+```
+
+After completion, the generated markdown file can be appended here or viewed directly in any Markdown viewer.
+
+<!--
+Paste the generated tables here (optional):
+
+## 100 k Rows per CSV
+
+```
+... table output ...
+```
+
+## 500 k Rows per CSV
+
+```
+... table output ...
+```
+
+## 1 M Rows per CSV
+
+```
+... table output ...
+```
+
+## Full Dataset (Unlimited Rows)
+
+```
+... table output ...
+```
+-->
+
 ### Key Observations
 - **Moving Average Crossover** showed consistent positive returns across multiple datasets
 - **Pairs Trading** strategies demonstrated lower volatility with steady returns

@@ -17,12 +17,16 @@
 #include <iomanip>
 #include <functional> // For std::function
 #include <filesystem> // For checking data dir existence
+#include <limits>
 
 // --- StrategyResult struct defined in Portfolio.h ---
 #include "core/Portfolio.h" // Make sure this is included
 
 // --- Global Data Cache ---
 std::map<std::string, std::unique_ptr<DataManager>> cached_data_managers;
+
+// --- Global Configuration (CLI) ---
+static size_t GLOBAL_MAX_ROWS_TO_LOAD = std::numeric_limits<size_t>::max();
 
 // --- Helper Function to Build Data Path ---
 std::string build_data_path(const std::string& base_dir, const std::string& subdir_name) {
@@ -41,6 +45,9 @@ DataManager* get_cached_data_manager(const std::string& data_path) {
     // Load data for the first time
     std::cout << "Loading and caching data for: " << data_path << std::endl;
     auto data_manager = std::make_unique<DataManager>();
+    if (GLOBAL_MAX_ROWS_TO_LOAD != std::numeric_limits<size_t>::max()) {
+        data_manager->setMaxRowsToLoad(GLOBAL_MAX_ROWS_TO_LOAD);
+    }
     if (!data_manager->loadData(data_path)) {
         std::cerr << "Failed to load data from: " << data_path << std::endl;
         return nullptr;
@@ -52,6 +59,23 @@ DataManager* get_cached_data_manager(const std::string& data_path) {
 }
 
 int main(int argc, char* argv[]) {
+    // --- Parse CLI Args for optional row cap BEFORE anything else accesses the cache ---
+    for(int i=1; i<argc; ++i){
+        std::string arg(argv[i]);
+        const std::string prefix = "--max-rows=";
+        if(arg.rfind(prefix,0)==0){
+            try {
+                GLOBAL_MAX_ROWS_TO_LOAD = std::stoull(arg.substr(prefix.size()));
+            } catch(const std::exception& ex) {
+                std::cerr << "[WARN] Invalid --max-rows value ('" << arg.substr(prefix.size()) << "'): " << ex.what() << ". Using unlimited." << std::endl;
+                GLOBAL_MAX_ROWS_TO_LOAD = std::numeric_limits<size_t>::max();
+            }
+        }
+    }
+    if(GLOBAL_MAX_ROWS_TO_LOAD!=std::numeric_limits<size_t>::max()){
+        std::cout << "[CONFIG] Row cap set via CLI: " << GLOBAL_MAX_ROWS_TO_LOAD << " rows per CSV." << std::endl;
+    }
+
     // --- UPDATED TITLE ---
     std::cout << "--- HFT Backtesting System - COMPREHENSIVE Multi-Strategy & Multi-Dataset Testing ---" << std::endl;
     std::cout << "--- Running ALL 8 Algorithmic Trading Strategy Types with Multiple Variants ---" << std::endl;
