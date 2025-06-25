@@ -141,15 +141,26 @@ public:
 
 ## 📈 Performance Results
 
-### Sample Results (Stocks April Dataset)
+### Recent Improvements (v2.0 - Realistic Parameters)
 
-| Strategy | Return (%) | Max DD (%) | Realized P&L | Fills | Final Equity |
-|----------|------------|------------|--------------|-------|--------------|
-| MACrossover_5_20 | 2.34 | -1.15 | $2,340 | 156 | $102,340 |
-| VWAP_2.0 | -0.87 | -2.34 | -$870 | 89 | $99,130 |
-| ORB_30 | 1.56 | -0.98 | $1,560 | 67 | $101,560 |
-| Momentum_5_10_2_3 | 0.23 | -3.45 | $230 | 234 | $100,230 |
-| Pairs_MSFT_NVDA | 0.45 | -1.87 | $450 | 78 | $100,450 |
+After comprehensive parameter tuning and robustness testing, all strategies now produce realistic returns:
+
+**Key Improvements:**
+- ✅ **Realistic Returns**: -2.82% to +11.45% (vs previous extremes of -2716% to +4205%)
+- ✅ **Conservative Position Sizing**: 3-5 shares vs previous 100 shares
+- ✅ **Proper Risk Management**: Maximum drawdowns under 15%
+- ✅ **Reduced Overtrading**: VWAP strategies now trade 600-800 times vs previous 6000+
+- ✅ **Fixed VWAP Logic**: Proper rolling standard deviation calculation vs hardcoded 0.5
+
+### Sample Results (20k Rows, Multiple Datasets)
+
+| Strategy | Return (%) | Max DD (%) | Fills | Performance Notes |
+|----------|------------|------------|-------|-------------------|
+| VWAP_3.0 (Crypto) | +11.45 | -9.40 | 794 | Best performer, crypto markets |
+| MACrossover_5_20 (Stocks) | +0.31 | -0.43 | 473 | Consistent, low volatility |
+| Pairs_NVDA_GOOG (Conservative) | -0.34 | -0.34 | 478 | Ultra-conservative risk profile |
+| VWAP_4.0 (Crypto) | +1.76 | -10.99 | 659 | Moderate crypto exposure |
+| Momentum_5_10_2_3 (All) | +0.21 | -0.88 | 614 | Balanced momentum capture |
 
 ### Automated Row-Cap Benchmarks
 

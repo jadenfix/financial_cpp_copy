@@ -7,6 +7,8 @@
 #include "strategies/MomentumIgnition.h"
 #include "strategies/PairsTrading.h"
 #include "strategies/LeadLagStrategy.h"
+#include "strategies/AdvancedMomentum.h"
+#include "strategies/StatisticalArbitrage.h"
 
 #include <iostream>
 #include <string>
@@ -170,9 +172,10 @@ int main(int argc, char* argv[]) {
         available_strategies_this_iteration.push_back({"ORB_30", [](){ return std::make_unique<OpeningRangeBreakout>(30, 5.0); }, {"stocks_april"}});
         available_strategies_this_iteration.push_back({"ORB_60", [](){ return std::make_unique<OpeningRangeBreakout>(60, 5.0); }, {"stocks_april"}});
 
-        // === 4. MOMENTUM IGNITION STRATEGIES (Multiple configurations) ===  
-        available_strategies_this_iteration.push_back({"Momentum_5_10_2_3", [](){ return std::make_unique<MomentumIgnition>(5, 10, 2.0, 3.0, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_10_20_1_5", [](){ return std::make_unique<MomentumIgnition>(10, 20, 1.5, 2.5, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // === 4. ADVANCED MOMENTUM STRATEGIES (Quantitative regime-aware) ===  
+        available_strategies_this_iteration.push_back({"AdvMomentum_Fast", [](){ return std::make_unique<AdvancedMomentum>(15, 1.2, 0.6, 0.025); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"AdvMomentum_Balanced", [](){ return std::make_unique<AdvancedMomentum>(25, 1.5, 0.8, 0.03); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"AdvMomentum_Conservative", [](){ return std::make_unique<AdvancedMomentum>(40, 2.0, 1.0, 0.02); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 5. PAIRS TRADING STRATEGIES (Much more conservative) ===
         
@@ -242,118 +245,51 @@ int main(int argc, char* argv[]) {
             });
         }
 
-        // === 6. LEAD-LAG STRATEGIES (Multiple configurations) ===
+        // === 6. STATISTICAL ARBITRAGE STRATEGIES (Advanced mean reversion) ===
         
-        // Multiple parameter sets for lead-lag
-        struct LeadLagConfig {
-            size_t window;
-            size_t lag;
-            double correlation_threshold;
-            double return_threshold;
-            double trade_size;
+        // Parameter sets for statistical arbitrage  
+        struct StatArbConfig {
+            int lookback;
+            double entry_z;
+            double exit_z;
+            double max_risk;
             std::string suffix;
         };
-        std::vector<LeadLagConfig> leadlag_configs = {
-            {30, 1, 0.5, 0.0002, 10.0, "Fast"},
-            {60, 2, 0.6, 0.0003, 10.0, "Medium"},
-            {120, 3, 0.7, 0.0005, 10.0, "Slow"},
-            {20, 1, 0.4, 0.0001, 10.0, "Aggressive"}
+        std::vector<StatArbConfig> statarb_configs = {
+            {60, 1.8, 0.4, 0.035, "Aggressive"},
+            {100, 2.0, 0.5, 0.03, "Balanced"},
+            {120, 2.2, 0.6, 0.025, "Conservative"}
         };
 
-        // Stock lead-lag pairs (for stocks_april dataset)
-        for (const auto& llc : leadlag_configs) {
+        // Stock statistical arbitrage pairs (for stocks_april dataset)
+        for (const auto& sac : statarb_configs) {
             available_strategies_this_iteration.push_back({
-                "LeadLag_MSFT->NVDA_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(msft_sym, nvda_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
+                "StatArb_MSFT_NVDA_" + sac.suffix,
+                [&, sac](){ return std::make_unique<StatisticalArbitrage>(msft_sym, nvda_sym, sac.lookback, sac.entry_z, sac.exit_z, sac.max_risk); },
                 {"stocks_april"}
             });
             available_strategies_this_iteration.push_back({
-                "LeadLag_NVDA->MSFT_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(nvda_sym, msft_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
+                "StatArb_MSFT_GOOG_" + sac.suffix,
+                [&, sac](){ return std::make_unique<StatisticalArbitrage>(msft_sym, goog_sym, sac.lookback, sac.entry_z, sac.exit_z, sac.max_risk); },
                 {"stocks_april"}
             });
             available_strategies_this_iteration.push_back({
-                "LeadLag_GOOG->MSFT_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(goog_sym, msft_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"stocks_april"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_MSFT->GOOG_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(msft_sym, goog_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"stocks_april"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_NVDA->GOOG_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(nvda_sym, goog_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"stocks_april"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_GOOG->NVDA_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(goog_sym, nvda_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
+                "StatArb_NVDA_GOOG_" + sac.suffix,
+                [&, sac](){ return std::make_unique<StatisticalArbitrage>(nvda_sym, goog_sym, sac.lookback, sac.entry_z, sac.exit_z, sac.max_risk); },
                 {"stocks_april"}
             });
         }
 
-        // Crypto lead-lag pairs (for 2024_only and 2024_2025 datasets)
-        for (const auto& llc : leadlag_configs) {
+        // Crypto statistical arbitrage pairs (for 2024_only and 2024_2025 datasets)
+        for (const auto& sac : statarb_configs) {
             available_strategies_this_iteration.push_back({
-                "LeadLag_BTC->ETH_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(btc_sym, eth_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
+                "StatArb_BTC_ETH_" + sac.suffix,
+                [&, sac](){ return std::make_unique<StatisticalArbitrage>(btc_sym, eth_sym, sac.lookback, sac.entry_z, sac.exit_z, sac.max_risk); },
                 {"2024_only", "2024_2025"}
             });
             available_strategies_this_iteration.push_back({
-                "LeadLag_ETH->BTC_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(eth_sym, btc_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_ETH->SOL_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(eth_sym, sol_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_SOL->ETH_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(sol_sym, eth_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_BTC->SOL_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(btc_sym, sol_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_SOL->BTC_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(sol_sym, btc_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_ETH->ADA_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(eth_sym, ada_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_ADA->ETH_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(ada_sym, eth_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_BTC->ADA_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(btc_sym, ada_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_ADA->BTC_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(ada_sym, btc_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_SOL->ADA_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(sol_sym, ada_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
-                {"2024_only", "2024_2025"}
-            });
-            available_strategies_this_iteration.push_back({
-                "LeadLag_ADA->SOL_" + llc.suffix,
-                [&, llc](){ return std::make_unique<LeadLagStrategy>(ada_sym, sol_sym, llc.window, llc.lag, llc.correlation_threshold, llc.return_threshold, llc.trade_size); },
+                "StatArb_ETH_SOL_" + sac.suffix,
+                [&, sac](){ return std::make_unique<StatisticalArbitrage>(eth_sym, sol_sym, sac.lookback, sac.entry_z, sac.exit_z, sac.max_risk); },
                 {"2024_only", "2024_2025"}
             });
         }
