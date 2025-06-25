@@ -8,6 +8,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <deque>
 #include <cmath> // For std::sqrt, std::pow, std::abs
 #include <numeric> // For std::accumulate
 #include <iostream>
@@ -23,9 +24,8 @@ private:
         double cumulative_price_volume = 0.0;
         double cumulative_volume = 0.0;
         double current_vwap = 0.0;
-        // For standard deviation calculation (optional, adds complexity)
-        // std::vector<double> price_vwap_diffs; // Store recent differences
-        // int rolling_stddev_window = 20; // Example window for std dev
+        std::deque<double> price_vwap_diffs; // Store recent price-VWAP differences
+        int rolling_stddev_window = 50; // Window for std dev calculation
     };
     std::map<std::string, SymbolState> symbol_state_;
     std::map<std::string, SignalDirection> current_signal_state_; // Track long/short/flat
@@ -64,12 +64,23 @@ public:
                 state.current_vwap = typical_price; // Use current price if volume is zero initially
             }
 
-             // --- Standard Deviation Calculation (Simplified - Using Close price deviation) ---
-             // A proper implementation would calculate std dev of (price - vwap) over a window
-             // For simplicity now, let's use a placeholder deviation or skip it
-             double standard_deviation = 0.5; // *** PLACEHOLDER *** Needs proper calculation
-             // Example: calculate rolling std dev if implemented
-             // standard_deviation = calculate_rolling_stddev(state.price_vwap_diffs, state.rolling_stddev_window);
+             // --- Standard Deviation Calculation (Proper rolling std dev) ---
+             double price_vwap_diff = typical_price - state.current_vwap;
+             state.price_vwap_diffs.push_back(price_vwap_diff);
+             if (state.price_vwap_diffs.size() > static_cast<size_t>(state.rolling_stddev_window)) {
+                 state.price_vwap_diffs.pop_front();
+             }
+             
+             double standard_deviation = 1.0; // Default fallback
+             if (state.price_vwap_diffs.size() >= 10) { // Need enough samples
+                 double mean_diff = std::accumulate(state.price_vwap_diffs.begin(), state.price_vwap_diffs.end(), 0.0) / state.price_vwap_diffs.size();
+                 double sq_sum = 0.0;
+                 for (double diff : state.price_vwap_diffs) {
+                     sq_sum += std::pow(diff - mean_diff, 2);
+                 }
+                 standard_deviation = std::sqrt(sq_sum / (state.price_vwap_diffs.size() - 1));
+                 if (standard_deviation < 0.01) standard_deviation = 0.01; // Minimum std dev to prevent tight bands
+             }
 
 
             // --- Signal Generation ---

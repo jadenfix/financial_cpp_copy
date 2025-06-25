@@ -154,31 +154,27 @@ int main(int argc, char* argv[]) {
         std::vector<StrategyConfig> available_strategies_this_iteration;
 
         // === 1. MOVING AVERAGE CROSSOVER STRATEGIES (Multiple variants) ===
-        // Use smaller position sizes - 10 shares max for expensive stocks
-        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_10_50", [](){ return std::make_unique<MovingAverageCrossover>(10, 50, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_20_100", [](){ return std::make_unique<MovingAverageCrossover>(20, 100, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // Reduced from 100 to 5 shares to prevent over-leveraging
+        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_10_50", [](){ return std::make_unique<MovingAverageCrossover>(10, 50, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_20_100", [](){ return std::make_unique<MovingAverageCrossover>(20, 100, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
-        // === 2. VWAP REVERSION STRATEGIES (Multiple thresholds) ===
-        available_strategies_this_iteration.push_back({"VWAP_1.5", [](){ return std::make_unique<VWAPReversion>(1.5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_2.0", [](){ return std::make_unique<VWAPReversion>(2.0, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_2.5", [](){ return std::make_unique<VWAPReversion>(2.5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_3.0", [](){ return std::make_unique<VWAPReversion>(3.0, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // === 2. VWAP REVERSION STRATEGIES (Multiple thresholds, CONSERVATIVE sizing) ===
+        // Reduced from 100 to 3 shares, increased deviation multipliers to reduce trade frequency
+        available_strategies_this_iteration.push_back({"VWAP_2.5", [](){ return std::make_unique<VWAPReversion>(2.5, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_3.0", [](){ return std::make_unique<VWAPReversion>(3.0, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_4.0", [](){ return std::make_unique<VWAPReversion>(4.0, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
-        // === 3. OPENING RANGE BREAKOUT STRATEGIES (Multiple timeframes) ===
-        available_strategies_this_iteration.push_back({"ORB_15", [](){ return std::make_unique<OpeningRangeBreakout>(15, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_30", [](){ return std::make_unique<OpeningRangeBreakout>(30, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_60", [](){ return std::make_unique<OpeningRangeBreakout>(60, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_120", [](){ return std::make_unique<OpeningRangeBreakout>(120, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // === 3. OPENING RANGE BREAKOUT STRATEGIES (Multiple time windows) ===
+        available_strategies_this_iteration.push_back({"ORB_30", [](){ return std::make_unique<OpeningRangeBreakout>(30, 5.0); }, {"stocks_april"}});
+        available_strategies_this_iteration.push_back({"ORB_60", [](){ return std::make_unique<OpeningRangeBreakout>(60, 5.0); }, {"stocks_april"}});
 
-        // === 4. MOMENTUM IGNITION STRATEGIES (Multiple configurations) ===
-        available_strategies_this_iteration.push_back({"Momentum_5_10_2_3", [](){ return std::make_unique<MomentumIgnition>(5, 10, 2.0, 3, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_3_8_1.5_2", [](){ return std::make_unique<MomentumIgnition>(3, 8, 1.5, 2, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_10_20_2.5_5", [](){ return std::make_unique<MomentumIgnition>(10, 20, 2.5, 5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_7_15_3.0_4", [](){ return std::make_unique<MomentumIgnition>(7, 15, 3.0, 4, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // === 4. MOMENTUM IGNITION STRATEGIES (Multiple configurations) ===  
+        available_strategies_this_iteration.push_back({"Momentum_5_10_2_3", [](){ return std::make_unique<MomentumIgnition>(5, 10, 2.0, 3.0, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"Momentum_10_20_1_5", [](){ return std::make_unique<MomentumIgnition>(10, 20, 1.5, 2.5, 3.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
-        // === 5. PAIRS TRADING STRATEGIES (All possible pairs with multiple configurations) ===
+        // === 5. PAIRS TRADING STRATEGIES (Much more conservative) ===
         
         // Multiple parameter sets for pairs trading
         struct PairsConfig {
@@ -189,10 +185,8 @@ int main(int argc, char* argv[]) {
             std::string suffix;
         };
         std::vector<PairsConfig> pairs_configs = {
-            {60, 2.0, 0.5, 2000.0, "Standard"},
-            {30, 1.5, 0.3, 2000.0, "Sensitive"},
-            {120, 2.5, 0.8, 2000.0, "Conservative"},
-            {40, 1.8, 0.4, 2000.0, "Balanced"}
+            {60, 2.5, 1.0, 500.0, "Conservative"}, // Reduced from $2000 to $500 per leg  
+            {120, 3.0, 1.5, 300.0, "UltraConservative"} // Very conservative settings
         };
 
         // Stock pairs (for stocks_april dataset)
