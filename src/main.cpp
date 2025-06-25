@@ -124,21 +124,21 @@ int main(int argc, char* argv[]) {
 
         if (target_dataset_subdir == "stocks_april") {
             std::cout << "Loading symbols for dataset: stocks_april" << std::endl;
-            msft_sym = "quant_seconds_data_MSFT";
-            nvda_sym = "quant_seconds_data_NVDA";
-            goog_sym = "quant_seconds_data_google";
+            msft_sym = "MSFT";
+            nvda_sym = "NVDA";
+            goog_sym = "GOOG";
         } else if (target_dataset_subdir == "2024_only") {
             std::cout << "Loading symbols for dataset: 2024_only" << std::endl;
-            btc_sym = "btc_2024_data";
-            eth_sym = "eth_2024_data";
-            sol_sym = "sol_2024_data";
-            ada_sym = "ada_2024_data";
+            btc_sym = "btc";
+            eth_sym = "eth";
+            sol_sym = "sol";
+            ada_sym = "ada";
         } else if (target_dataset_subdir == "2024_2025") {
             std::cout << "Loading symbols for dataset: 2024_2025" << std::endl;
-            btc_sym = "2024_to_april_2025_btc_data";
-            eth_sym = "2024_to_april_2025_eth_data";
-            sol_sym = "2024_to_april_2025_solana_data"; // Match exact filename stem
-            ada_sym = "2024_to_april_2025_ada_data";
+            btc_sym = "btc";
+            eth_sym = "eth";
+            sol_sym = "solana";
+            ada_sym = "ada";
         } else {
             std::cerr << "Warning: Unknown dataset subdirectory '" << target_dataset_subdir << "' encountered in loop logic." << std::endl;
             continue; // Skip dataset
@@ -154,28 +154,29 @@ int main(int argc, char* argv[]) {
         std::vector<StrategyConfig> available_strategies_this_iteration;
 
         // === 1. MOVING AVERAGE CROSSOVER STRATEGIES (Multiple variants) ===
-        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_10_50", [](){ return std::make_unique<MovingAverageCrossover>(10, 50, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_20_100", [](){ return std::make_unique<MovingAverageCrossover>(20, 100, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // Use smaller position sizes - 10 shares max for expensive stocks
+        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_10_50", [](){ return std::make_unique<MovingAverageCrossover>(10, 50, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_20_100", [](){ return std::make_unique<MovingAverageCrossover>(20, 100, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 2. VWAP REVERSION STRATEGIES (Multiple thresholds) ===
-        available_strategies_this_iteration.push_back({"VWAP_1.5", [](){ return std::make_unique<VWAPReversion>(1.5, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_2.0", [](){ return std::make_unique<VWAPReversion>(2.0, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_2.5", [](){ return std::make_unique<VWAPReversion>(2.5, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"VWAP_3.0", [](){ return std::make_unique<VWAPReversion>(3.0, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_1.5", [](){ return std::make_unique<VWAPReversion>(1.5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_2.0", [](){ return std::make_unique<VWAPReversion>(2.0, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_2.5", [](){ return std::make_unique<VWAPReversion>(2.5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"VWAP_3.0", [](){ return std::make_unique<VWAPReversion>(3.0, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 3. OPENING RANGE BREAKOUT STRATEGIES (Multiple timeframes) ===
-        available_strategies_this_iteration.push_back({"ORB_15", [](){ return std::make_unique<OpeningRangeBreakout>(15, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_30", [](){ return std::make_unique<OpeningRangeBreakout>(30, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_60", [](){ return std::make_unique<OpeningRangeBreakout>(60, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"ORB_120", [](){ return std::make_unique<OpeningRangeBreakout>(120, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"ORB_15", [](){ return std::make_unique<OpeningRangeBreakout>(15, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"ORB_30", [](){ return std::make_unique<OpeningRangeBreakout>(30, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"ORB_60", [](){ return std::make_unique<OpeningRangeBreakout>(60, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"ORB_120", [](){ return std::make_unique<OpeningRangeBreakout>(120, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 4. MOMENTUM IGNITION STRATEGIES (Multiple configurations) ===
-        available_strategies_this_iteration.push_back({"Momentum_5_10_2_3", [](){ return std::make_unique<MomentumIgnition>(5, 10, 2.0, 3, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_3_8_1.5_2", [](){ return std::make_unique<MomentumIgnition>(3, 8, 1.5, 2, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_10_20_2.5_5", [](){ return std::make_unique<MomentumIgnition>(10, 20, 2.5, 5, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"Momentum_7_15_3.0_4", [](){ return std::make_unique<MomentumIgnition>(7, 15, 3.0, 4, 100.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"Momentum_5_10_2_3", [](){ return std::make_unique<MomentumIgnition>(5, 10, 2.0, 3, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"Momentum_3_8_1.5_2", [](){ return std::make_unique<MomentumIgnition>(3, 8, 1.5, 2, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"Momentum_10_20_2.5_5", [](){ return std::make_unique<MomentumIgnition>(10, 20, 2.5, 5, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"Momentum_7_15_3.0_4", [](){ return std::make_unique<MomentumIgnition>(7, 15, 3.0, 4, 10.0); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 5. PAIRS TRADING STRATEGIES (All possible pairs with multiple configurations) ===
         
@@ -188,10 +189,10 @@ int main(int argc, char* argv[]) {
             std::string suffix;
         };
         std::vector<PairsConfig> pairs_configs = {
-            {60, 2.0, 0.5, 10000.0, "Standard"},
-            {30, 1.5, 0.3, 10000.0, "Sensitive"},
-            {120, 2.5, 0.8, 10000.0, "Conservative"},
-            {40, 1.8, 0.4, 10000.0, "Balanced"}
+            {60, 2.0, 0.5, 2000.0, "Standard"},
+            {30, 1.5, 0.3, 2000.0, "Sensitive"},
+            {120, 2.5, 0.8, 2000.0, "Conservative"},
+            {40, 1.8, 0.4, 2000.0, "Balanced"}
         };
 
         // Stock pairs (for stocks_april dataset)
@@ -259,10 +260,10 @@ int main(int argc, char* argv[]) {
             std::string suffix;
         };
         std::vector<LeadLagConfig> leadlag_configs = {
-            {30, 1, 0.5, 0.0002, 100.0, "Fast"},
-            {60, 2, 0.6, 0.0003, 100.0, "Medium"},
-            {120, 3, 0.7, 0.0005, 100.0, "Slow"},
-            {20, 1, 0.4, 0.0001, 100.0, "Aggressive"}
+            {30, 1, 0.5, 0.0002, 10.0, "Fast"},
+            {60, 2, 0.6, 0.0003, 10.0, "Medium"},
+            {120, 3, 0.7, 0.0005, 10.0, "Slow"},
+            {20, 1, 0.4, 0.0001, 10.0, "Aggressive"}
         };
 
         // Stock lead-lag pairs (for stocks_april dataset)

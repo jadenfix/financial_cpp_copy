@@ -14,12 +14,41 @@
 
 namespace fs = std::filesystem;
 
-// --- getSymbolFromFilename remains the same ---
+// --- Enhanced getSymbolFromFilename ---
 std::string DataManager::getSymbolFromFilename(const fs::path& filePath) {
-    if (filePath.has_stem()) {
-        return filePath.stem().string();
+    if (!filePath.has_stem()) {
+        return "";
     }
-    return "";
+    
+    std::string stem = filePath.stem().string();
+    
+    // Extract clean symbol from various filename patterns
+    // Pattern 1: quant_seconds_data_SYMBOL.csv -> SYMBOL
+    if (stem.find("quant_seconds_data_") == 0) {
+        std::string symbol = stem.substr(19); // Skip "quant_seconds_data_"
+        // Handle special cases
+        if (symbol == "google") return "GOOG";
+        return symbol;
+    }
+    
+    // Pattern 2: SYMBOL_2024_data.csv -> SYMBOL  
+    size_t data_pos = stem.find("_2024_data");
+    if (data_pos != std::string::npos) {
+        return stem.substr(0, data_pos);
+    }
+    
+    // Pattern 3: 2024_to_april_2025_SYMBOL_data.csv -> SYMBOL
+    if (stem.find("2024_to_april_2025_") == 0) {
+        std::string remainder = stem.substr(19); // Skip "2024_to_april_2025_"
+        size_t data_pos = remainder.find("_data");
+        if (data_pos != std::string::npos) {
+            return remainder.substr(0, data_pos);
+        }
+        return remainder;
+    }
+    
+    // Default: return the stem as-is
+    return stem;
 }
 
 
@@ -105,6 +134,13 @@ bool DataManager::parseCsvFile(const fs::path& filePath, const std::string& symb
             }
 
             barsForSymbol.emplace_back(PriceBar{timestamp, open, high, low, close, volume});
+
+            // NEW: Stop loading after reaching max_rows_to_load_
+            if (barsForSymbol.size() >= max_rows_to_load_) {
+                // Optional: print once per file
+                std::cout << "      Reached row limit (" << max_rows_to_load_ << ") for " << symbol << ". Truncating data." << std::endl;
+                break;
+            }
 
         // Catch exceptions from string conversions or timestamp parsing
         } catch (const std::exception& e) {

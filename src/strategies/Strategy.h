@@ -7,26 +7,35 @@
 #include <vector>
 #include <map>
 #include <memory> // For std::shared_ptr
+#include <cmath> // For std::floor
 
 class Strategy {
 protected:
     Portfolio* portfolio_ = nullptr; // Pointer to the portfolio (non-owning)
 
 public:
+    // --- Constructor and Virtual Destructor ---
+    Strategy() = default;
     virtual ~Strategy() = default;
 
-    // --- NEW: Method to link portfolio ---
-    // Called by the Backtester during setup
-    virtual void set_portfolio(Portfolio* portfolio) {
-        portfolio_ = portfolio;
-    }
-
-    // Called by the Backtester to process new market data
+    // --- Interface Methods ---
     virtual void handle_market_event(const MarketEvent& event, EventQueue& queue) = 0;
+    virtual void handle_fill_event(const FillEvent& event, EventQueue& queue) {}
 
-    // Called by the Backtester when one of the strategy's orders gets filled
-    virtual void handle_fill_event(const FillEvent& event) {
-        (void)event; // Suppress unused variable warning by default
+    // --- Helper for Strategies ---
+    void set_portfolio(Portfolio* portfolio) { portfolio_ = portfolio; }
+
+    // --- NEW: Helper for Position Sizing ---
+    double calculate_shares_for_dollar_amount(double target_dollar_amount, double current_price) const {
+        if (current_price <= 0) return 0.0;
+        return std::floor(target_dollar_amount / current_price);
+    }
+    
+    double calculate_target_position_size(double allocation_percentage, double current_price) const {
+        if (!portfolio_ || current_price <= 0) return 0.0;
+        double available_capital = portfolio_->get_total_equity();
+        double target_dollar_amount = available_capital * (allocation_percentage / 100.0);
+        return calculate_shares_for_dollar_amount(target_dollar_amount, current_price);
     }
 
     // Helper to push events onto the queue

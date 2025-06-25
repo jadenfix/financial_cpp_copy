@@ -63,23 +63,26 @@ set(STRATEGY_SOURCES
 set(MAIN_SOURCE src/main.cpp)
 
 
-# --- Build Target ---
-# Create the final executable target named 'trading_system'
-# It will be built from all the specified source files.
-add_executable(trading_system
-    ${MAIN_SOURCE}
+# --- Build Library First ---
+# Create a library from all source files except main.cpp
+add_library(trading_system_lib STATIC
     ${CORE_SOURCES}
     ${DATA_SOURCES}
     ${STRATEGY_SOURCES}
-    # Add other source groups here if needed (e.g., ${INDICATOR_SOURCES})
 )
 
-# --- Include Directories ---
-# Tell the 'trading_system' target where to find header files during compilation.
-target_include_directories(trading_system PRIVATE
-    # Add the 'src' directory. This allows includes like #include "core/Event.h", etc.
+target_include_directories(trading_system_lib PUBLIC
     src
-    # Add the directory containing the 'csv2' folder, as defined earlier.
+    ${CSV2_INCLUDE_DIR}
+)
+
+# --- Build Main Executable ---
+add_executable(trading_system ${MAIN_SOURCE})
+target_link_libraries(trading_system PRIVATE trading_system_lib)
+
+# --- Include Directories for main executable ---
+target_include_directories(trading_system PRIVATE
+    src
     ${CSV2_INCLUDE_DIR}
 )
 
@@ -124,3 +127,12 @@ endif()
 # if(ENABLE_DEBUG_SYMBOLS_IN_RELEASE AND CMAKE_BUILD_TYPE STREQUAL "Release")
 #   target_compile_options(trading_system PRIVATE -g) # Add debug symbols flag (-g for GCC/Clang)
 # endif()
+
+# --- Add test executables ---
+add_executable(test_integrity test_data_integrity.cpp)
+target_link_libraries(test_integrity PRIVATE trading_system_lib)
+target_include_directories(test_integrity PRIVATE src ${CSV2_INCLUDE_DIR})
+
+add_executable(strategy_perf_test strategy_performance_test.cpp)
+target_link_libraries(strategy_perf_test PRIVATE trading_system_lib)
+target_include_directories(strategy_perf_test PRIVATE src ${CSV2_INCLUDE_DIR})

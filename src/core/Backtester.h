@@ -250,7 +250,7 @@ private:
                 auto fill_event = std::dynamic_pointer_cast<FillEvent>(event);
                 if (fill_event) {
                     portfolio_->handle_fill_event(*fill_event); // Update portfolio
-                    strategy_->handle_fill_event(*fill_event); // Notify strategy
+                    strategy_->handle_fill_event(*fill_event, event_queue_); // Notify strategy
                 }
                 break;
             }

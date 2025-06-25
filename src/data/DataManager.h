@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory> // Include for EventPtr potentially later? Or just use Event.h?
+#include <limits>
 
 #include "data/PriceBar.h" // Correct path
 #include "core/Event.h"    // Include for DataSnapshot definition and Event types
@@ -27,6 +28,10 @@ public:
     std::chrono::system_clock::time_point getCurrentTime() const;
     bool isDataFinished() const;
 
+    // NEW: Setter to limit maximum rows to load (for testing)
+    void setMaxRowsToLoad(size_t max_rows) { max_rows_to_load_ = max_rows; }
+    size_t getMaxRowsToLoad() const { return max_rows_to_load_; }
+
 private:
     // Internal storage remains unordered_map for performance
     std::unordered_map<std::string, std::vector<PriceBar>> historicalData_;
@@ -34,6 +39,7 @@ private:
     std::chrono::system_clock::time_point currentTime_ = std::chrono::system_clock::time_point::min();
     std::vector<std::string> symbols_;
     bool dataLoaded_ = false;
+    size_t max_rows_to_load_ = std::numeric_limits<size_t>::max(); // NEW: limit rows loaded per symbol
 
     // --- Private Helper Methods ---
     std::string getSymbolFromFilename(const std::filesystem::path& filePath);
