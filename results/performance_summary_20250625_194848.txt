@@ -1,0 +1,3 @@
+Scenario: Enhanced_Strategies - Runtime: 117s - Strategies: 93 - Profitable: 4
+Scenario: Streaming_Demo - Runtime: 22s - Strategies: 93 - Profitable: 6
+Scenario: Full_Dataset - Runtime: 141s - Strategies: 93 - Profitable: 5

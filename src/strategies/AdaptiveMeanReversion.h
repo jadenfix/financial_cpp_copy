@@ -1,286 +1,257 @@
 #pragma once
 #include "Strategy.h"
-#include <deque>
+
+#include <boost/circular_buffer.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <mutex>
+#include <vector>
+#include <iterator>
+#include <limits>
+
+// simple no-op logger; replace with spdlog/your favorite later
+#ifndef LOG_TRACE
+#define LOG_TRACE(fmt, ...) do{} while(0)
+#endif
 
 class AdaptiveMeanReversion : public Strategy {
 private:
-    // Core parameters
+    //––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+    // Constants: all your “magic numbers” in one place
+    static constexpr size_t MIN_LOOKBACK   = 20;
+    static constexpr size_t MAX_LOOKBACK   = 200;
+    static constexpr double MIN_THRESHOLD  = 1.0;
+    static constexpr double MAX_THRESHOLD  = 5.0;
+    static constexpr double EPS            = 1e-8;
+    
+    // Core params
     size_t lookback_period_;
     double base_threshold_;
     double max_position_value_;
-    
-    // Enhanced state tracking
-    std::deque<double> price_history_;
-    std::deque<double> volume_history_;
-    std::deque<double> returns_;
-    std::deque<double> volatility_estimates_;
-    
+
+    // State buffers
+    boost::circular_buffer<double> price_history_;
+    boost::circular_buffer<double> volume_history_;
+    boost::circular_buffer<double> returns_;
+    boost::circular_buffer<double> regime_indicators_;
+
     // Regime detection
-    std::deque<double> regime_indicators_;
-    size_t regime_window_;
-    double trend_threshold_;
-    
-    // Kalman filter for dynamic mean estimation
-    double kalman_gain_;
-    double process_noise_;
-    double measurement_noise_;
-    double mean_estimate_;
-    double error_covariance_;
-    
-    // Risk management
-    double max_leverage_;
-    double volatility_target_;
-    size_t warmup_period_;
-    
-    // Market microstructure
-    double bid_ask_spread_estimate_;
-    double execution_cost_buffer_;
-    
-    void updateKalmanFilter(double new_price) {
-        // Prediction step
-        double predicted_error = error_covariance_ + process_noise_;
-        
-        // Update step
-        kalman_gain_ = predicted_error / (predicted_error + measurement_noise_);
-        mean_estimate_ = mean_estimate_ + kalman_gain_ * (new_price - mean_estimate_);
-        error_covariance_ = (1.0 - kalman_gain_) * predicted_error;
-    }
-    
-    double calculateGARCHVolatility() const {
-        if (returns_.size() < 20) return 0.02; // Default 2%
-        
-        // Simple GARCH(1,1) approximation
-        double alpha = 0.1, beta = 0.85, omega = 0.000001;
-        double long_run_var = 0.0004; // 2% annual vol squared
-        
+    size_t regime_window_    = 30;
+    double trend_threshold_  = 0.1;
+
+    // Kalman filter
+    double kalman_gain_      = 0.1;
+    double process_noise_    = 1e-4;
+    double measurement_noise_= 1e-2;
+    double mean_estimate_    = 0.0;
+    double error_covariance_ = 1.0;
+
+    // Risk / execution
+    double max_leverage_         = 2.0;
+    double volatility_target_    = 0.02;
+    size_t warmup_period_        = 100;
+    size_t bar_count_            = 0;
+    double bid_ask_spread_estimate_ = 0.001;
+    double execution_cost_buffer_   = 0.0005;
+
+    // For thread-safety if you ever parallelize symbols
+    mutable std::mutex state_mutex_;
+
+    //––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+    // Static helper: simple GARCH(1,1)
+    template<typename It>
+    static double simpleGarch(It begin, It end,
+                              double omega, double alpha, double beta,
+                              double long_run_var)
+    {
+        if (std::distance(begin,end) < 1) return long_run_var;
         double garch_var = long_run_var;
-        for (size_t i = 1; i < returns_.size(); ++i) {
-            double prev_return = returns_[i-1];
-            garch_var = omega + alpha * prev_return * prev_return + beta * garch_var;
+        double prev_sq   = (*begin)*(*begin);
+        for (auto it = std::next(begin); it!=end; ++it) {
+            garch_var = omega + alpha*prev_sq + beta*garch_var;
+            prev_sq   = (*it)*(*it);
         }
-        
         return std::sqrt(garch_var);
     }
-    
-    double calculateHurstExponent() const {
-        if (price_history_.size() < 50) return 0.5; // Random walk default
-        
-        // Simplified R/S analysis
-        size_t n = std::min(static_cast<size_t>(50), price_history_.size());
-        std::vector<double> log_prices;
-        
-        for (size_t i = price_history_.size() - n; i < price_history_.size(); ++i) {
-            log_prices.push_back(std::log(price_history_[i]));
+
+    //––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+    // Static helper: Hurst exponent via R/S
+    template<typename It>
+    static double hurstRS(It begin, It end) {
+        size_t n = std::distance(begin,end);
+        if (n<2) return 0.5;
+        std::vector<double> logp; logp.reserve(n);
+        for (auto it=begin; it!=end; ++it)
+            logp.push_back(std::log(*it));
+
+        // mean log-return
+        double mlr=0;
+        for (size_t i=1;i<logp.size();++i)
+            mlr += (logp[i]-logp[i-1]);
+        mlr /= (logp.size()-1);
+
+        // cumulative deviations
+        std::vector<double> cum; cum.reserve(n-1);
+        double sum=0;
+        for (size_t i=1;i<logp.size();++i) {
+            sum += (logp[i]-logp[i-1]) - mlr;
+            cum.push_back(sum);
         }
-        
-        double mean_log_return = 0.0;
-        for (size_t i = 1; i < log_prices.size(); ++i) {
-            mean_log_return += log_prices[i] - log_prices[i-1];
+        if (cum.empty()) return 0.5;
+        auto [mn,mx] = std::minmax_element(cum.begin(),cum.end());
+        double R = *mx - *mn;
+
+        // std dev
+        double var=0;
+        for (size_t i=1;i<logp.size();++i) {
+            double d=(logp[i]-logp[i-1]) - mlr;
+            var += d*d;
         }
-        mean_log_return /= (log_prices.size() - 1);
-        
-        // Calculate cumulative deviations
-        std::vector<double> cumulative_deviations;
-        double cumsum = 0.0;
-        for (size_t i = 1; i < log_prices.size(); ++i) {
-            cumsum += (log_prices[i] - log_prices[i-1]) - mean_log_return;
-            cumulative_deviations.push_back(cumsum);
-        }
-        
-        if (cumulative_deviations.empty()) return 0.5;
-        
-        // Calculate range
-        auto minmax = std::minmax_element(cumulative_deviations.begin(), cumulative_deviations.end());
-        double range = *minmax.second - *minmax.first;
-        
-        // Calculate standard deviation
-        double variance = 0.0;
-        for (size_t i = 1; i < log_prices.size(); ++i) {
-            double ret = log_prices[i] - log_prices[i-1];
-            variance += (ret - mean_log_return) * (ret - mean_log_return);
-        }
-        double std_dev = std::sqrt(variance / (log_prices.size() - 2));
-        
-        if (std_dev < 1e-8) return 0.5;
-        
-        // Hurst exponent approximation
-        double rs_ratio = range / std_dev;
-        double hurst = std::log(rs_ratio) / std::log(static_cast<double>(n));
-        
-        return std::max(0.1, std::min(0.9, hurst)); // Clamp to reasonable range
+        double S = std::sqrt(var/(logp.size()-2));
+        if (S<EPS) return 0.5;
+
+        double rs = R/S;
+        double H  = std::log(rs)/std::log(double(n));
+        return std::clamp(H, 0.1, 0.9);
     }
-    
-    double calculateRegimeIndicator() const {
-        if (returns_.size() < 20) return 0.0;
-        
-        // Trend vs mean reversion indicator
-        size_t window = std::min(static_cast<size_t>(20), returns_.size());
-        
-        // Calculate autocorrelation at lag 1
-        double mean_return = 0.0;
-        for (size_t i = returns_.size() - window; i < returns_.size(); ++i) {
-            mean_return += returns_[i];
+
+    //––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+    // Static helper: lag-1 autocorrelation
+    template<typename It>
+    static double autocorr1(It begin, It end) {
+        ptrdiff_t N = std::distance(begin,end);
+        if (N<2) return 0.0;
+        double mean = std::accumulate(begin,end,0.0)/N;
+        double num=0, den=0;
+        for (auto it=begin; std::next(it)!=end; ++it) {
+            double x = *it  - mean;
+            double y = *std::next(it) - mean;
+            num += x*y;
+            den += y*y;
         }
-        mean_return /= window;
-        
-        double numerator = 0.0, denominator = 0.0;
-        for (size_t i = returns_.size() - window + 1; i < returns_.size(); ++i) {
-            double ret_t = returns_[i] - mean_return;
-            double ret_t_minus_1 = returns_[i-1] - mean_return;
-            numerator += ret_t * ret_t_minus_1;
-            denominator += ret_t * ret_t;
-        }
-        
-        if (denominator < 1e-10) return 0.0;
-        return numerator / denominator; // Autocorrelation coefficient
+        return (den<EPS? 0.0 : num/den);
     }
-    
-    double getAdaptiveThreshold(double volatility, double regime_indicator) const {
-        // Dynamic threshold based on volatility and regime
-        double vol_adjustment = volatility / volatility_target_;
-        double regime_adjustment = 1.0 + std::abs(regime_indicator) * 0.5;
-        
-        return base_threshold_ * vol_adjustment * regime_adjustment;
+
+    //––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+    // Standard Kalman update
+    void updateKalmanFilter(double price) {
+        double pred_err = error_covariance_ + process_noise_;
+        kalman_gain_ = pred_err/(pred_err+measurement_noise_);
+        mean_estimate_ += kalman_gain_*(price-mean_estimate_);
+        error_covariance_ = (1-kalman_gain_)*pred_err;
     }
-    
-    double getOptimalPositionSize(double signal_strength, double volatility, double price) const {
-        // Kelly criterion with volatility targeting
-        double vol_target_multiplier = volatility_target_ / std::max(volatility, 0.001);
-        
-        // Signal strength adjustment (stronger signals get larger positions)
-        double signal_multiplier = std::min(2.0, signal_strength);
-        
-        // Base position from volatility targeting
-        double base_position = (max_position_value_ / price) * vol_target_multiplier * signal_multiplier;
-        
-        // Apply leverage constraint
-        return std::min(base_position, max_leverage_ * (max_position_value_ / price));
+
+    // Dynamic threshold & position sizing
+    double getAdaptiveThreshold(double vol, double regime) const {
+        double v = vol/std::max(volatility_target_,EPS);
+        double r = 1.0 + std::abs(regime)*0.5;
+        return base_threshold_ * v * r;
+    }
+    double getOptimalPositionSize(double signal, double vol, double price) const {
+        double vm = volatility_target_/std::max(vol,EPS);
+        double sm = std::min(2.0,signal);
+        double base = (max_position_value_/price)*vm*sm;
+        double cap  = max_leverage_*(max_position_value_/price);
+        return std::min(base,cap);
     }
 
 public:
-    AdaptiveMeanReversion(size_t lookback = 50, double threshold = 2.0, double max_pos_value = 3000.0)
-        : lookback_period_(lookback), base_threshold_(threshold), max_position_value_(max_pos_value),
-          regime_window_(30), trend_threshold_(0.1),
-          kalman_gain_(0.1), process_noise_(0.0001), measurement_noise_(0.01),
-          mean_estimate_(0.0), error_covariance_(1.0),
-          max_leverage_(2.0), volatility_target_(0.02),
-          warmup_period_(std::max(lookback, static_cast<size_t>(100))),
-          bid_ask_spread_estimate_(0.001), execution_cost_buffer_(0.0005) {
-        
-        // Validate parameters
-        lookback_period_ = std::max(static_cast<size_t>(20), std::min(lookback_period_, static_cast<size_t>(200)));
-        base_threshold_ = std::max(1.0, std::min(threshold, 5.0));
-        max_position_value_ = std::max(1000.0, std::min(max_pos_value, 10000.0));
+    AdaptiveMeanReversion(size_t lookback=50,
+                          double threshold=2.0,
+                          double max_pos=3000.0)
+      : lookback_period_( std::clamp(lookback,MIN_LOOKBACK,MAX_LOOKBACK) )
+      , base_threshold_( std::clamp(threshold,MIN_THRESHOLD,MAX_THRESHOLD) )
+      , max_position_value_( std::max(1000.0, max_pos) )
+      , price_history_(lookback_period_*2)
+      , volume_history_(lookback_period_)
+      , returns_(lookback_period_)
+      , regime_indicators_(regime_window_)
+    {
+        warmup_period_ = std::max(lookback_period_, size_t(100));
+        // no further resize needed—circular_buffer is fixed
     }
-    
-    void handle_market_event(const MarketEvent& event, EventQueue& queue) override {
-        for (const auto& [symbol, bar] : event.data) {
-            on_data(bar, symbol, queue);
-        }
+
+    // Entry point
+    void handle_market_event(const MarketEvent& ev, EventQueue& q) override {
+        std::lock_guard<std::mutex> lk(state_mutex_);
+        for (auto const& [sym,bar] : ev.data)
+            on_data(bar, sym, q);
     }
-    
-    void on_data(const PriceBar& bar, const std::string& symbol, EventQueue& queue) {
-        double mid_price = (bar.High + bar.Low) / 2.0;
-        double volume = static_cast<double>(bar.Volume);
-        
-        // Update price and volume history
-        price_history_.push_back(mid_price);
-        volume_history_.push_back(volume);
-        
-        // Maintain window sizes
-        if (price_history_.size() > lookback_period_ * 2) {
-            price_history_.pop_front();
+
+    // Main per-bar logic
+    void on_data(const PriceBar& bar,
+                 const std::string& sym,
+                 EventQueue& q)
+    {
+        // single early warm-up exit
+        if (++bar_count_ < warmup_period_) return;
+
+        double mid = (bar.High + bar.Low)*0.5;
+        double vol = double(bar.Volume);
+
+        price_history_.push_back(mid);
+        volume_history_.push_back(vol);
+
+        // compute 1-period return
+        if (price_history_.size()>1) {
+            auto it = price_history_.end();
+            double prev = *std::prev(it,2);
+            returns_.push_back((mid - prev)/std::max(prev,EPS));
         }
-        if (volume_history_.size() > lookback_period_) {
-            volume_history_.pop_front();
-        }
-        
-        // Calculate returns
-        if (price_history_.size() >= 2) {
-            double prev_price = price_history_[price_history_.size() - 2];
-            double return_pct = (mid_price - prev_price) / prev_price;
-            returns_.push_back(return_pct);
-            
-            if (returns_.size() > lookback_period_) {
-                returns_.pop_front();
+
+        // once we have lookback worth of bars, signal
+        if (price_history_.size() >= lookback_period_) {
+            updateKalmanFilter(mid);
+
+            double vol_est = simpleGarch(returns_.begin(), returns_.end(),
+                                         /*ω*/1e-6, /*α*/0.1, /*β*/0.85,
+                                         /*long-run var*/0.0004);
+            double H  = hurstRS(price_history_.begin(), price_history_.end());
+            double R  = autocorr1(returns_.begin(), returns_.end());
+
+            if (H>0.6 || R>0.3) {
+                LOG_TRACE("skipTrending: H={} R={}", H, R);
+                return;
+            }
+
+            double dev = (mid - mean_estimate_)/std::max(mean_estimate_,EPS);
+            double thr = getAdaptiveThreshold(vol_est, R);
+
+            // liquidity filter
+            double avg_vol = std::accumulate(volume_history_.begin(),
+                                             volume_history_.end(),0.0)
+                             / volume_history_.size();
+            if (vol < avg_vol*0.3) {
+                LOG_TRACE("skipLowVol: v={} < {}", vol, avg_vol*0.3);
+                return;
+            }
+
+            double signal = std::abs(dev)/thr;
+            if (signal>1.0) {
+                double eff = thr + execution_cost_buffer_;
+                if (dev < -eff) {
+                    double sz = getOptimalPositionSize(signal, vol_est, mid);
+                    q.push(std::make_shared<OrderEvent>(
+                              bar.timestamp, sym,
+                              OrderType::MARKET,
+                              OrderDirection::BUY,
+                              sz));
+                }
+                else if (dev > eff) {
+                    double sz = getOptimalPositionSize(signal, vol_est, mid);
+                    q.push(std::make_shared<OrderEvent>(
+                              bar.timestamp, sym,
+                              OrderType::MARKET,
+                              OrderDirection::SELL,
+                              sz));
+                }
             }
         }
-        
-        // Update Kalman filter for dynamic mean
-        if (price_history_.size() >= 10) {
-            updateKalmanFilter(mid_price);
-        }
-        
-        // Wait for sufficient warmup
-        if (price_history_.size() < warmup_period_) {
-            return;
-        }
-        
-        // Calculate current metrics
-        double volatility = calculateGARCHVolatility();
-        double hurst = calculateHurstExponent();
-        double regime_indicator = calculateRegimeIndicator();
-        
-        // Skip if in trending regime (Hurst > 0.6 or strong positive autocorrelation)
-        if (hurst > 0.6 || regime_indicator > 0.3) {
-            return;
-        }
-        
-        // Calculate mean reversion signal
-        double current_deviation = (mid_price - mean_estimate_) / mean_estimate_;
-        double adaptive_threshold = getAdaptiveThreshold(volatility, regime_indicator);
-        
-        // Volume filter - ensure sufficient liquidity
-        double avg_volume = std::accumulate(volume_history_.begin(), volume_history_.end(), 0.0) / volume_history_.size();
-        if (volume < avg_volume * 0.3) { // Skip low volume periods
-            return;
-        }
-        
-        // Signal generation with adaptive thresholds
-        double signal_strength = std::abs(current_deviation) / adaptive_threshold;
-        
-        if (signal_strength > 1.0) { // Signal threshold exceeded
-            // Account for execution costs in signal
-            double effective_threshold = adaptive_threshold + execution_cost_buffer_;
-            
-            if (current_deviation < -effective_threshold) {
-                // Price below mean - buy signal
-                double position_size = getOptimalPositionSize(signal_strength, volatility, mid_price);
-                auto order_event = std::make_shared<OrderEvent>(
-                    bar.timestamp,
-                    symbol,
-                    OrderType::MARKET,
-                    OrderDirection::BUY,
-                    position_size
-                );
-                queue.push(order_event);
-                
-            } else if (current_deviation > effective_threshold) {
-                // Price above mean - sell signal  
-                double position_size = getOptimalPositionSize(signal_strength, volatility, mid_price);
-                auto order_event = std::make_shared<OrderEvent>(
-                    bar.timestamp,
-                    symbol,
-                    OrderType::MARKET,
-                    OrderDirection::SELL,
-                    position_size
-                );
-                queue.push(order_event);
-            }
-        }
-        
-        // Update regime indicators
-        regime_indicators_.push_back(regime_indicator);
-        if (regime_indicators_.size() > regime_window_) {
-            regime_indicators_.pop_front();
-        }
     }
-    
-    std::string get_name() const {
-        return "AdaptiveMeanRev_" + std::to_string(lookback_period_) + "_" + 
-               std::to_string(static_cast<int>(base_threshold_ * 10));
+
+    std::string get_name() const override {
+        return "AdaptiveMeanRev_" + std::to_string(lookback_period_) + "_" +
+               std::to_string(int(base_threshold_*10));
     }
-}; 
+};
