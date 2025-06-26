@@ -42,16 +42,19 @@ for CAP in "${CAPS[@]}"; do
   echo "[INFO] Running: ${RUN_CMD[*]}"   
   TMP_OUT="$(mktemp)"
 
-  # Run and capture output
-  "${RUN_CMD[@]}" | tee "$TMP_OUT"
+  # Capture output silently (prevent flooding terminal). Still stored in TMP_OUT.
+  "${RUN_CMD[@]}" > "$TMP_OUT" 2>&1
 
   # Extract section starting at combined results
-  TABLE_CONTENT=$(awk '/===== COMBINED Strategy Comparison Results =====/{flag=1; next} /=====/ && flag{print; if (/^=====/{exit}} flag' "$TMP_OUT")
+  TABLE_CONTENT=$(awk '/===== COMBINED Strategy Comparison Results =====/{flag=1; next} flag && /^=+$/ {exit} flag {print}' "$TMP_OUT")
 
-  echo "\n## ${LABEL}\n" >> "$OUTPUT_MD"
-  echo '\n```' >> "$OUTPUT_MD"
-  echo "$TABLE_CONTENT" >> "$OUTPUT_MD"
-  echo '\n```\n' >> "$OUTPUT_MD"
+  printf "\n## %s\n\n" "$LABEL" >> "$OUTPUT_MD"
+  # Write fenced code block explicitly to avoid backtick command substitution
+  {
+    printf '```text\n'         # opening fence
+    printf '%s\n' "$TABLE_CONTENT"
+    printf '```\n\n'          # closing fence & extra newline
+  } >> "$OUTPUT_MD"
 
   rm "$TMP_OUT"
 done

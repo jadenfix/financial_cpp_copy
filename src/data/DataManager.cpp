@@ -14,8 +14,9 @@
 
 namespace fs = std::filesystem;
 
-// --- Enhanced getSymbolFromFilename ---
-std::string DataManager::getSymbolFromFilename(const fs::path& filePath) {
+// --- Enhanced extractSymbolFromFilename ---
+std::string DataManager::extractSymbolFromFilename(const std::string& filename) const {
+    fs::path filePath(filename);
     if (!filePath.has_stem()) {
         return "";
     }
@@ -53,7 +54,13 @@ std::string DataManager::getSymbolFromFilename(const fs::path& filePath) {
 
 
 // --- REVISED parseCsvFile ---
-bool DataManager::parseCsvFile(const fs::path& filePath, const std::string& symbol) {
+bool DataManager::parseCsvFile(const std::string& filename) {
+    fs::path filePath(filename);
+    std::string symbol = extractSymbolFromFilename(filename);
+    if (symbol.empty()) {
+        std::cerr << "Could not extract symbol from filename: " << filename << std::endl;
+        return false;
+    }
     csv2::Reader<csv2::delimiter<','>,
                  csv2::quote_character<'"'>,
                  csv2::first_row_is_header<true>,
@@ -226,10 +233,10 @@ bool DataManager::loadData(const std::string& dataPath) {
                 std::transform(ext.begin(), ext.end(), ext.begin(),
                               [](unsigned char c){ return std::tolower(c); });
                 if (ext == ".csv") {
-                    std::string symbol = getSymbolFromFilename(path);
+                    std::string symbol = extractSymbolFromFilename(path.string());
                     if (!symbol.empty()) {
                         std::cout << "  Parsing file: " << path.filename().string() << " for symbol: " << symbol << std::endl;
-                        if (parseCsvFile(path, symbol)) {
+                        if (parseCsvFile(path.string())) {
                             if (historicalData_.count(symbol) && !historicalData_.at(symbol).empty()) {
                                 anyFileParsedSuccessfullyWithData = true;
                             }
@@ -337,3 +344,163 @@ bool DataManager::isDataFinished() const {
         return it_idx->second >= it_data->second.size();
     });
 }
+
+bool DataManager::loadDataWithContinuity(const std::string& data_dir, size_t chunk_start, size_t chunk_size) {
+    if (!streaming_mode_) {
+        return loadData(data_dir); // Fall back to regular loading
+    }
+    
+    std::filesystem::path dir_path(data_dir);
+    if (!std::filesystem::exists(dir_path) || !std::filesystem::is_directory(dir_path)) {
+        std::cerr << "Error: Directory '" << data_dir << "' does not exist or is not a directory." << std::endl;
+        return false;
+    }
+
+    bool any_loaded = false;
+    std::cout << "[STREAMING] Loading data chunk [" << chunk_start << ", " << (chunk_start + chunk_size) << "] from: " << data_dir << std::endl;
+
+    for (const auto& entry : std::filesystem::directory_iterator(dir_path)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".csv") {
+            std::string file_path = entry.path().string();
+            std::cout << "[STREAMING] Processing file: " << file_path << std::endl;
+            
+            if (parseCsvFileWithContinuity(file_path, chunk_start, chunk_size)) {
+                any_loaded = true;
+            }
+        }
+    }
+
+    if (any_loaded) {
+        dataLoaded_ = true;
+        std::cout << "[STREAMING] Data chunk loaded successfully. Symbols available: ";
+        for (const auto& symbol : symbols_) {
+            std::cout << symbol << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    return any_loaded;
+}
+
+std::vector<PriceBar> DataManager::getWarmupData(const std::string& symbol, size_t lookback) const {
+    std::vector<PriceBar> warmup_data;
+    
+    auto it = historicalData_.find(symbol);
+    if (it == historicalData_.end() || lookback == 0) {
+        return warmup_data;
+    }
+    
+    const auto& symbol_data = it->second;
+    size_t start_idx = 0;
+    
+    if (symbol_data.size() > lookback) {
+        start_idx = symbol_data.size() - lookback;
+    }
+    
+    // Return the last 'lookback' bars as warmup data
+    warmup_data.reserve(lookback);
+    for (size_t i = start_idx; i < symbol_data.size(); ++i) {
+        warmup_data.push_back(symbol_data[i]);
+    }
+    
+    return warmup_data;
+}
+
+bool DataManager::parseCsvFileWithContinuity(const std::string& file_path, size_t chunk_start, size_t chunk_size) {
+    csv2::Reader<csv2::delimiter<','>> csv;
+    if (!csv.mmap(file_path)) {
+        std::cerr << "Failed to open file: " << file_path << std::endl;
+        return false;
+    }
+
+    std::string symbol = extractSymbolFromFilename(file_path);
+    if (symbol.empty()) {
+        std::cerr << "Could not extract symbol from filename: " << file_path << std::endl;
+        return false;
+    }
+
+    // Prepare for streaming
+    std::vector<PriceBar> chunk_data;
+    size_t row_count = 0;
+    size_t data_rows_processed = 0;
+    
+    // Add warmup buffer if this isn't the first chunk
+    bool need_warmup = (chunk_start > 0) && last_bar_per_symbol_.count(symbol);
+    
+    for (const auto& row : csv) {
+        if (row_count == 0) {
+            // Skip header
+            ++row_count;
+            continue;
+        }
+        
+        // Skip rows before our chunk start (but preserve some for warmup)
+        if (data_rows_processed < chunk_start) {
+            if (need_warmup && (chunk_start - data_rows_processed) <= warmup_buffer_size_) {
+                // Include in warmup buffer
+                try {
+                    PriceBar bar = parseRowToBar(row, symbol);
+                    chunk_data.push_back(bar);
+                } catch (...) {
+                    // Skip malformed rows
+                }
+            }
+            ++data_rows_processed;
+            continue;
+        }
+        
+        // Process chunk data
+        if (chunk_size > 0 && (data_rows_processed - chunk_start) >= chunk_size) {
+            break; // Reached chunk limit
+        }
+        
+        try {
+            PriceBar bar = parseRowToBar(row, symbol);
+            chunk_data.push_back(bar);
+            last_bar_per_symbol_[symbol] = bar; // Keep track of last bar
+            
+        } catch (const std::exception& e) {
+            std::cerr << "Error parsing row in " << file_path << ": " << e.what() << std::endl;
+            continue;
+        }
+        
+        ++data_rows_processed;
+        
+        // Apply max_rows_to_load_ limit if set
+        if (max_rows_to_load_ != std::numeric_limits<size_t>::max() && 
+            data_rows_processed >= max_rows_to_load_) {
+            std::cout << "[LIMIT] Reached max_rows_to_load (" << max_rows_to_load_ 
+                     << ") for symbol: " << symbol << std::endl;
+            break;
+        }
+    }
+    
+    if (!chunk_data.empty()) {
+        // For streaming mode, replace or append data
+        if (chunk_start == 0) {
+            historicalData_[symbol] = std::move(chunk_data); // Fresh start
+        } else {
+            // Append to existing data (removing warmup overlap)
+            auto& existing_data = historicalData_[symbol];
+            size_t warmup_overlap = need_warmup ? std::min(warmup_buffer_size_, chunk_data.size()) : 0;
+            
+            existing_data.insert(existing_data.end(), 
+                               chunk_data.begin() + warmup_overlap, 
+                               chunk_data.end());
+        }
+        
+        // Update symbols list if new
+        if (std::find(symbols_.begin(), symbols_.end(), symbol) == symbols_.end()) {
+            symbols_.push_back(symbol);
+        }
+        
+        last_processed_index_[symbol] = data_rows_processed;
+        
+        std::cout << "[STREAMING] Loaded " << chunk_data.size() << " bars for symbol: " << symbol 
+                 << " (total: " << historicalData_[symbol].size() << ")" << std::endl;
+        return true;
+    }
+    
+    return false;
+}
+

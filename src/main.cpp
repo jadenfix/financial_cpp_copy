@@ -9,6 +9,7 @@
 #include "strategies/LeadLagStrategy.h"
 #include "strategies/AdvancedMomentum.h"
 #include "strategies/StatisticalArbitrage.h"
+#include "strategies/AdaptiveMeanReversion.h"
 
 #include <iostream>
 #include <string>
@@ -112,11 +113,17 @@ int main(int argc, char* argv[]) {
             continue; // Skip to the next dataset
         }
 
-        // --- Get or Load Cached Data ---
+        // --- Get or Load Cached Data WITH WARMUP SUPPORT ---
         DataManager* cached_data = get_cached_data_manager(data_path);
         if (!cached_data) {
             std::cerr << "ERROR: Failed to load data for '" << data_path << "'. Skipping dataset." << std::endl;
             continue;
+        }
+        
+        // Enable streaming mode for large datasets
+        if (GLOBAL_MAX_ROWS_TO_LOAD != std::numeric_limits<size_t>::max()) {
+            cached_data->enableStreamingMode(200); // 200-bar warmup buffer
+            std::cout << "[INFO] Enabled streaming mode with " << GLOBAL_MAX_ROWS_TO_LOAD << " row limit." << std::endl;
         }
 
         // --- Define Symbol Names BASED ON CURRENT DATASET ---
@@ -245,7 +252,12 @@ int main(int argc, char* argv[]) {
             });
         }
 
-        // === 6. STATISTICAL ARBITRAGE STRATEGIES (Advanced mean reversion) ===
+        // === 6. ADAPTIVE MEAN REVERSION STRATEGIES (New Enhanced) ===
+        available_strategies_this_iteration.push_back({"AdaptiveMeanRev_Conservative", [](){ return std::make_unique<AdaptiveMeanReversion>(60, 2.5, 2500.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"AdaptiveMeanRev_Aggressive", [](){ return std::make_unique<AdaptiveMeanReversion>(40, 2.0, 3000.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"AdaptiveMeanRev_UltraConservative", [](){ return std::make_unique<AdaptiveMeanReversion>(80, 3.0, 2000.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+
+        // === 7. STATISTICAL ARBITRAGE STRATEGIES (Advanced mean reversion) ===
         
         // Parameter sets for statistical arbitrage  
         struct StatArbConfig {
