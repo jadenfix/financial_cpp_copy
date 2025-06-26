@@ -24,6 +24,7 @@ public:
     // --- Interface Methods ---
     virtual void handle_market_event(const MarketEvent& event, EventQueue& queue) = 0;
     virtual void handle_fill_event(const FillEvent& event, EventQueue& queue) {}
+    virtual std::string get_name() const { return "Strategy"; }
 
     // --- Helper for Strategies ---
     void set_portfolio(Portfolio* portfolio) { portfolio_ = portfolio; }

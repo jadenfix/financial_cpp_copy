@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -47,10 +47,10 @@ private:
     //――――――――――――――――――――――――――――――――――――――――――――
     // 3) Per-symbol state with fixed-size ring buffers
     struct SymbolState {
-        boost::circular_buffer<PriceBar> bars{MAX_HISTORY};
-        boost::circular_buffer<double>    rets{MAX_HISTORY};
-        boost::circular_buffer<double>    closes{MAX_HISTORY};
-        boost::circular_buffer<double>    trade_rets{MAX_TRADES};
+        circular_buffer<PriceBar> bars{MAX_HISTORY};
+        circular_buffer<double>    rets{MAX_HISTORY};
+        circular_buffer<double>    closes{MAX_HISTORY};
+        circular_buffer<double>    trade_rets{MAX_TRADES};
 
         // Kelly stats
         double win_rate = 0.5,
@@ -73,17 +73,18 @@ private:
     // 4) Static helpers for testable, self-contained logic
 
     // 4a) Compute a Sharpe-style momentum score
-    static double calcMomentum(const boost::circular_buffer<double>& rets,
+    static double calcMomentum(const circular_buffer<double>& rets,
                                size_t lookback)
     {
         if (rets.size() < lookback) return 0.0;
 
         // mean + stddev via STL
-        auto start = rets.end() - lookback;
-        double mean = std::accumulate(start, rets.end(), 0.0) / lookback;
+        auto start = rets.last(lookback);
+        auto end = rets.end();
+        double mean = std::accumulate(start, end, 0.0) / lookback;
 
         double var = std::inner_product(
-            start, rets.end(), start, 0.0,
+            start, end, start, 0.0,
             std::plus<>(),
             [mean](double x, double y){ 
                 return (x - mean) * (y - mean); 

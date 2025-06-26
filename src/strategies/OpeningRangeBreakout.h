@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -56,13 +56,14 @@ private:
         bool   range_established = false;
 
         // Volume for filter
-        boost::circular_buffer<double> volume_hist;
+        circular_buffer<double> volume_hist;
 
         // Position management
         bool   position_open    = false;
         double entry_price      = 0.0;
         double trailing_stop    = NAN;
         double profit_target    = NAN;
+        SignalDirection current_signal = SignalDirection::FLAT;
     };
 
     std::map<std::string, SymbolState> states_;
@@ -95,7 +96,7 @@ private:
     }
 
     // Rolling average volume
-    static double avgVolume(const boost::circular_buffer<double>& buf) {
+    static double avgVolume(const circular_buffer<double>& buf) {
         if (buf.empty()) return 0.0;
         double sum = std::accumulate(buf.begin(), buf.end(), 0.0);
         return sum / double(buf.size());
@@ -146,8 +147,8 @@ public:
                             -std::numeric_limits<double>::infinity(),
                              std::numeric_limits<double>::infinity(),
                              false,
-                             boost::circular_buffer<double>(volume_avg_window_),
-                             false, 0, NAN, NAN}
+                             circular_buffer<double>(volume_avg_window_),
+                             false, 0, NAN, NAN, SignalDirection::FLAT}
             ).first->second;
 
             // 1) New session detection: if clock went backwards or >24h, reset
@@ -189,13 +190,13 @@ public:
 
                 if (want != SignalDirection::FLAT) {
                     // compute ATR for sizing/stop
-                    double atr = calculate_atr({bar}, 14);  // or your Utils::calcATR
-                    st.profit_target = bar.Close + want==SignalDirection::LONG
+                    double atr = trueRange(bar, prev_close);  // Simple single-bar TR as estimate
+                    st.profit_target = bar.Close + ((want==SignalDirection::LONG)
                         ? profit_target_atr_mult_*atr
-                        : -profit_target_atr_mult_*atr;
-                    st.trailing_stop = bar.Close - want==SignalDirection::LONG
+                        : -profit_target_atr_mult_*atr);
+                    st.trailing_stop = bar.Close - ((want==SignalDirection::LONG)
                         ? stop_loss_atr_mult_*atr
-                        : -stop_loss_atr_mult_*atr;
+                        : -stop_loss_atr_mult_*atr);
 
                     double qty = (want==SignalDirection::LONG? +target_position_size_ : -target_position_size_);
                     double cur = portfolio_->get_position_quantity(symbol);

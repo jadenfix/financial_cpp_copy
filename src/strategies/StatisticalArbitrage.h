@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <mutex>
@@ -40,9 +40,9 @@ private:
 
     //――――――――――――――――――――――――――――――――――
     // 3) Rolling buffers & running sums for O(1) stats
-    boost::circular_buffer<double> buf_primary_;      // price A
-    boost::circular_buffer<double> buf_hedge_;        // price B
-    boost::circular_buffer<double> buf_spread_;       // spread = A - β*B
+    circular_buffer<double> buf_primary_;      // price A
+    circular_buffer<double> buf_hedge_;        // price B
+    circular_buffer<double> buf_spread_;       // spread = A - β*B
 
     // Running sums for regression: y=A, x=B
     double sum_x_   = 0.0;  // Σ B

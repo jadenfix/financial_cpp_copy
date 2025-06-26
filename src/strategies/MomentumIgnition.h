@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -43,7 +43,7 @@ private:
     //――――――――――――――――――――――――――――――――――
     // 3) Per-symbol state with fixed-size ring buffer
     struct SymbolState {
-        boost::circular_buffer<PriceBar> hist;
+        circular_buffer<PriceBar> hist;
         SignalDirection current_signal = SignalDirection::FLAT;
 
         SymbolState(size_t max_hist) : hist(max_hist) {}
@@ -54,44 +54,62 @@ private:
     // 4) Helpers for each condition
 
     // 4a) price breakout
-    static void calcHighLow(const boost::circular_buffer<PriceBar>& H,
+    static void calcHighLow(const circular_buffer<PriceBar>& H,
                             size_t window,
                             double& outHigh,
                             double& outLow)
     {
-        auto start = H.end() - 1 - window;
-        auto finish = H.end() - 1; // exclude current bar
+        // Get last window+1 elements, excluding the current bar
+        size_t total_size = H.size();
+        if (total_size < window + 1) {
+            outHigh = outLow = 0.0;
+            return;
+        }
+        
+        auto start = H.last(window + 1);
+        auto finish = start;
+        std::advance(finish, window); // exclude current bar
+        
         auto hi = std::max_element(start, finish,
-                                   [](auto &a, auto &b){ return a.High < b.High; });
+                                   [](const auto &a, const auto &b){ return a.High < b.High; });
         auto lo = std::min_element(start, finish,
-                                   [](auto &a, auto &b){ return a.Low  < b.Low;  });
+                                   [](const auto &a, const auto &b){ return a.Low  < b.Low;  });
         outHigh = hi->High;
         outLow  = lo->Low;
     }
 
     // 4b) average volume
-    static double calcAvgVolume(const boost::circular_buffer<PriceBar>& H,
+    static double calcAvgVolume(const circular_buffer<PriceBar>& H,
                                 size_t window)
     {
-        auto start = H.end() - 1 - window;
-        auto finish = H.end() - 1;
+        if (H.size() < window + 1) return 0.0;
+        auto start = H.last(window + 1);
+        auto finish = start;
+        std::advance(finish, window); // exclude current bar
         double sum = std::accumulate(start, finish, 0.0,
-            [](double acc, auto &bar){ return acc + double(bar.Volume); });
+            [](double acc, const auto &bar){ return acc + double(bar.Volume); });
         return sum / window;
     }
 
     // 4c) sum of return deltas
-    static double calcReturnDelta(const boost::circular_buffer<PriceBar>& H,
+    static double calcReturnDelta(const circular_buffer<PriceBar>& H,
                                   size_t window)
     {
+        if (H.size() < window + 1) return 0.0;
         double sum = 0.0;
-        auto it_end = H.end() - 1;
-        auto it_begin = it_end - window;
-        for (auto it = it_begin; it != it_end; ++it) {
-            double prev = std::prev(it)->Close;
-            if (prev > EPS) {
-                sum += (it->Close / prev) - 1.0;
+        auto it_start = H.last(window + 1);
+        auto it_end = H.end();
+        std::advance(it_end, -1); // exclude current bar
+        
+        auto prev_it = it_start;
+        for (auto it = it_start; it != it_end; ++it) {
+            if (it != it_start) {
+                double prev_close = prev_it->Close;
+                if (prev_close > EPS) {
+                    sum += (it->Close / prev_close) - 1.0;
+                }
             }
+            prev_it = it;
         }
         return sum;
     }

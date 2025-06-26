@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -49,10 +49,10 @@ private:
     //――――――――――――――――――――――――――――――
     // 3) Per‐symbol rolling state
     struct SymbolState {
-        boost::circular_buffer<double> prices;
-        boost::circular_buffer<double> volumes;
-        boost::circular_buffer<double> true_ranges;
-        boost::circular_buffer<double> returns;       // for volatility
+        circular_buffer<double> prices;
+        circular_buffer<double> volumes;
+        circular_buffer<double> true_ranges;
+        circular_buffer<double> returns;       // for volatility
         SignalDirection current_signal = SignalDirection::FLAT;
 
         SymbolState(size_t p, size_t v, size_t tr, size_t r) noexcept
@@ -65,21 +65,23 @@ private:
     // 4) Static helpers
 
     // 4a) Simple moving average over last N of buf
-    static double calcSMA(const boost::circular_buffer<double>& buf, size_t period) {
+    static double calcSMA(const circular_buffer<double>& buf, size_t period) {
         if (buf.size() < period) return 0.0;
-        auto begin = buf.end() - period;
-        return std::accumulate(begin, buf.end(), 0.0) / double(period);
+        auto start_it = buf.last(period);
+        auto end_it = buf.end();
+        return std::accumulate(start_it, end_it, 0.0) / double(period);
     }
 
     // 4b) Average True Range
-    static double calcATR(const boost::circular_buffer<double>& tr, size_t period) {
+    static double calcATR(const circular_buffer<double>& tr, size_t period) {
         if (tr.size() < period) return DEFAULT_ATR;
-        auto begin = tr.end() - period;
-        return std::accumulate(begin, tr.end(), 0.0) / double(period);
+        auto start_it = tr.last(period);
+        auto end_it = tr.end();
+        return std::accumulate(start_it, end_it, 0.0) / double(period);
     }
 
     // 4c) Rolling volatility (sample std dev of returns)
-    static double calcVol(const boost::circular_buffer<double>& rets) {
+    static double calcVol(const circular_buffer<double>& rets) {
         size_t n = rets.size();
         if (n < 2) return DEFAULT_VOL;
         double mean = std::accumulate(rets.begin(), rets.end(), 0.0) / double(n);
@@ -89,11 +91,11 @@ private:
     }
 
     // 4d) Trend strength via normalized slope of a linear regression
-    static double calcTrend(const boost::circular_buffer<double>& buf, size_t lookback) {
+    static double calcTrend(const circular_buffer<double>& buf, size_t lookback) {
         size_t n = std::min(lookback, buf.size());
         if (n < 2) return 0.0;
         double sum_x=0, sum_y=0, sum_xy=0, sum_x2=0;
-        auto it = buf.end() - n;
+        auto it = buf.last(n);
         for (size_t i = 0; i < n; ++i, ++it) {
             double x = double(i), y = *it;
             sum_x  += x;

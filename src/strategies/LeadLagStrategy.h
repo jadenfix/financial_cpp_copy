@@ -6,7 +6,7 @@
 #include "core/Utils.h"
 #include "core/Portfolio.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -41,8 +41,8 @@ private:
 
     //――――――――――――――――――――――――――――――――――――――
     // 3) State: rolling return history + O(1) corr-buffers
-    boost::circular_buffer<std::pair<double,double>> ret_hist_;
-    boost::circular_buffer<double>                   corr_x_, corr_y_;
+    circular_buffer<std::pair<double,double>> ret_hist_;
+    circular_buffer<double>                   corr_x_, corr_y_;
 
     // running sums for Pearson correlation
     double sum_x_   = 0.0;

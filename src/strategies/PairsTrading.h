@@ -7,7 +7,7 @@
 #include "core/Portfolio.h"
 #include "data/PriceBar.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <mutex>
@@ -40,7 +40,7 @@ private:
 
     //――――――――――――――――――――――――――――――――――
     // 3) Runtime state
-    boost::circular_buffer<double> ratio_hist_; // size = lookback_window_
+    circular_buffer<double> ratio_hist_; // size = lookback_window_
     double sum_ratio_    = 0.0;                 // Σ ratio
     double sum_ratio_sq_ = 0.0;                 // Σ ratio²
 

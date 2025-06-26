@@ -1,7 +1,7 @@
 #pragma once
 #include "Strategy.h"
 
-#include <boost/circular_buffer.hpp>
+// #include <boost/circular_buffer.hpp>  // Using our own circular_buffer from Utils.h
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -31,10 +31,10 @@ private:
     double max_position_value_;
 
     // State buffers
-    boost::circular_buffer<double> price_history_;
-    boost::circular_buffer<double> volume_history_;
-    boost::circular_buffer<double> returns_;
-    boost::circular_buffer<double> regime_indicators_;
+    circular_buffer<double> price_history_;
+    circular_buffer<double> volume_history_;
+    circular_buffer<double> returns_;
+    circular_buffer<double> regime_indicators_;
 
     // Regime detection
     size_t regime_window_    = 30;
