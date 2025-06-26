@@ -3,172 +3,191 @@
 #include "Strategy.h"
 #include "core/Event.h"
 #include "core/EventQueue.h"
-#include "core/Utils.h"
+#include "core/Utils.h"    // for formatTimestampUTC
 #include "core/Portfolio.h"
-#include <string>
+#include "data/PriceBar.h"
+
+#include <boost/circular_buffer.hpp>
+#include <algorithm>
+#include <cmath>
+#include <mutex>
+#include <numeric>
 #include <stdexcept>
-#include <vector>
-#include <deque>
-#include <numeric> // For std::accumulate
-#include <cmath>   // For std::sqrt, std::pow, std::abs
-#include <iostream>
+#include <string>
+
+#ifndef LOG_TRACE
+#define LOG_TRACE(fmt, ...) do{} while(0)
+#endif
 
 class PairsTrading : public Strategy {
 private:
-    // --- Parameters ---
-    std::string symbol_a_; // First symbol in the pair
-    std::string symbol_b_; // Second symbol in the pair
-    size_t lookback_window_; // For calculating mean/std dev of ratio
-    double entry_zscore_threshold_; // Z-score to enter a trade
-    double exit_zscore_threshold_;  // Z-score to exit a trade
-    double target_trade_dollar_value_; // Target $ value for each leg
+    //――――――――――――――――――――――――――――――――――
+    // 1) Centralize all “magic” constants
+    static constexpr double EPS                     = 1e-12;
+    static constexpr size_t MIN_LOOKBACK            = 2;
+    static constexpr double MIN_Z_ENTRY             = 0.0;
+    static constexpr double MIN_Z_EXIT              = 0.0;
+    static constexpr double MIN_TRADE_VALUE         = 1e-6;
 
-    // --- State ---
-    std::deque<double> ratio_history_; // Stores recent PriceA / PriceB ratios
-    double ratio_mean_ = 0.0;
-    double ratio_stddev_ = 0.0;
-    SignalDirection current_signal_state_ = SignalDirection::FLAT; // FLAT, LONG_A_SHORT_B, SHORT_A_LONG_B
+    //――――――――――――――――――――――――――――――――――
+    // 2) Constructor arguments (validated and clamped)
+    const std::string symbol_a_;
+    const std::string symbol_b_;
+    const size_t      lookback_window_;       // N
+    const double      entry_zscore_threshold_; // Z-entry
+    const double      exit_zscore_threshold_;  // Z-exit
+    const double      trade_value_;            // $ per leg
 
-    // Helper enum for pair state
-    enum class PairSignal {
-        FLAT,
-        LONG_A_SHORT_B, // Buy A, Sell B (Ratio expected to increase)
-        SHORT_A_LONG_B  // Sell A, Buy B (Ratio expected to decrease)
-    };
-    PairSignal current_pair_signal_ = PairSignal::FLAT;
+    //――――――――――――――――――――――――――――――――――
+    // 3) Runtime state
+    boost::circular_buffer<double> ratio_hist_; // size = lookback_window_
+    double sum_ratio_    = 0.0;                 // Σ ratio
+    double sum_ratio_sq_ = 0.0;                 // Σ ratio²
 
+    enum class PairSignal { FLAT, LONG_A_SHORT_B, SHORT_A_LONG_B };
+    PairSignal      current_signal_ = PairSignal::FLAT;
+
+    mutable std::mutex mtx_;  // guard all state
 
 public:
-    PairsTrading(std::string sym_a, std::string sym_b,
-                   size_t lookback = 30, double entry_z = 2.0, double exit_z = 0.5,
-                   double trade_value = 10000.0) // Trade $10k per leg by default
-        : symbol_a_(std::move(sym_a)), symbol_b_(std::move(sym_b)),
-          lookback_window_(lookback), entry_zscore_threshold_(entry_z),
-          exit_zscore_threshold_(exit_z), target_trade_dollar_value_(trade_value)
+    //――――――――――――――――――――――――――――――――――
+    PairsTrading(std::string a,
+                 std::string b,
+                 size_t lookback = 30,
+                 double z_entry  = 2.0,
+                 double z_exit   = 0.5,
+                 double trade_val= 10000.0)
+      : symbol_a_(std::move(a))
+      , symbol_b_(std::move(b))
+      , lookback_window_(std::clamp(lookback, MIN_LOOKBACK, lookback))
+      , entry_zscore_threshold_(std::max(z_entry, MIN_Z_ENTRY))
+      , exit_zscore_threshold_(std::max(z_exit,  MIN_Z_EXIT))
+      , trade_value_(std::max(trade_val, MIN_TRADE_VALUE))
+      , ratio_hist_(lookback_window_)
     {
-        if (lookback == 0 || entry_z <= exit_z || entry_z <= 0 || exit_z < 0 || trade_value <= 0) {
-             throw std::invalid_argument("Invalid parameters for PairsTrading");
+        if (symbol_a_.empty() || symbol_b_.empty() || symbol_a_ == symbol_b_) {
+            throw std::invalid_argument("PairsTrading: symbols must be non-empty and distinct");
         }
-        if (symbol_a_ == symbol_b_) {
-             throw std::invalid_argument("Pair symbols cannot be the same");
+        if (entry_zscore_threshold_ <= exit_zscore_threshold_) {
+            throw std::invalid_argument("PairsTrading: entry_z must be > exit_z");
         }
     }
 
-    void handle_market_event(const MarketEvent& event, EventQueue& queue) override {
+    //――――――――――――――――――――――――――――――――――
+    void handle_market_event(const MarketEvent& ev, EventQueue& queue) override {
+        std::lock_guard lock(mtx_);
         if (!portfolio_) return;
 
-        // Find data for both symbols in the current snapshot
-        auto it_a = event.data.find(symbol_a_);
-        auto it_b = event.data.find(symbol_b_);
+        // Fetch both bars
+        auto ita = ev.data.find(symbol_a_);
+        auto itb = ev.data.find(symbol_b_);
+        if (ita == ev.data.end() || itb == ev.data.end()) return;
 
-        // Need data for *both* symbols to calculate the ratio
-        if (it_a == event.data.end() || it_b == event.data.end()) {
-            // std::cout << "Pairs: Missing data for one or both symbols this tick." << std::endl;
-            return; // Skip if either symbol is missing data
+        const PriceBar& ba = ita->second;
+        const PriceBar& bb = itb->second;
+        double pa = ba.Close, pb = bb.Close;
+        if (pa <= EPS || pb <= EPS) return;  // guard zero
+
+        // 1) Incremental ratio stats
+        double ratio = pa / pb;
+        if (ratio_hist_.full()) {
+            double old = ratio_hist_.front();
+            sum_ratio_    -= old;
+            sum_ratio_sq_ -= old*old;
+        }
+        ratio_hist_.push_back(ratio);
+        sum_ratio_    += ratio;
+        sum_ratio_sq_ += ratio*ratio;
+
+        // 2) Warm-up
+        if (ratio_hist_.size() < lookback_window_) return;
+
+        // 3) Compute mean & stddev in O(1)
+        size_t N = ratio_hist_.size();
+        double mean = sum_ratio_ / double(N);
+        double var  = (sum_ratio_sq_ - (sum_ratio_*sum_ratio_)/double(N)) / double(N-1);
+        if (var <= 0) return;
+        double stddev = std::sqrt(var);
+
+        // 4) Z-score
+        double z = (ratio - mean) / stddev;
+
+        // 5) Determine desired new signal
+        PairSignal desired = current_signal_;
+        if (current_signal_ == PairSignal::FLAT) {
+            if (z >  entry_zscore_threshold_) desired = PairSignal::SHORT_A_LONG_B;
+            if (z < -entry_zscore_threshold_) desired = PairSignal::LONG_A_SHORT_B;
+        } else if (current_signal_ == PairSignal::SHORT_A_LONG_B) {
+            if (z < exit_zscore_threshold_) desired = PairSignal::FLAT;
+        } else { /* LONG_A_SHORT_B */
+            if (z > -exit_zscore_threshold_) desired = PairSignal::FLAT;
         }
 
-        const PriceBar& bar_a = it_a->second;
-        const PriceBar& bar_b = it_b->second;
+        // 6) If signal changed, emit balanced orders
+        if (desired != current_signal_) {
+            LOG_TRACE(
+                "PAIRS: {} / {}  ratio={:.4f} mean={:.4f} std={:.4f} z={:.4f} -> {}",
+                symbol_a_, symbol_b_,
+                ratio, mean, stddev, z,
+                (desired==PairSignal::LONG_A_SHORT_B? "LONG_A_SHORT_B":
+                 desired==PairSignal::SHORT_A_LONG_B? "SHORT_A_LONG_B": "FLAT")
+            );
 
-        // Use closing prices for ratio calculation
-        double price_a = bar_a.Close;
-        double price_b = bar_b.Close;
+            // Compute target quantities
+            double qa = trade_value_ / pa;
+            double qb = trade_value_ / pb;
+            double target_a = 0.0, target_b = 0.0;
 
-        if (price_a <= 1e-9 || price_b <= 1e-9) {
-             // std::cout << "Pairs: Zero or invalid price encountered." << std::endl;
-             return; // Avoid division by zero or using invalid prices
-        }
-
-        // --- Calculate Ratio and Update History ---
-        double current_ratio = price_a / price_b;
-        ratio_history_.push_back(current_ratio);
-        if (ratio_history_.size() > lookback_window_) {
-            ratio_history_.pop_front();
-        }
-
-        // Need enough history to calculate stats
-        if (ratio_history_.size() < lookback_window_) {
-            // std::cout << "Pairs: Gathering history..." << std::endl;
-            return;
-        }
-
-        // --- Calculate Mean and Standard Deviation ---
-        double sum = std::accumulate(ratio_history_.begin(), ratio_history_.end(), 0.0);
-        ratio_mean_ = sum / lookback_window_;
-
-        double sq_sum = 0.0;
-        for (double ratio : ratio_history_) {
-            sq_sum += std::pow(ratio - ratio_mean_, 2);
-        }
-        // Use sample standard deviation (N-1), requires lookback >= 2
-        ratio_stddev_ = (lookback_window_ > 1) ? std::sqrt(sq_sum / (lookback_window_ - 1)) : 0.0;
-
-        if (ratio_stddev_ < 1e-9) {
-            // std::cout << "Pairs: Zero std dev, cannot calculate Z-score." << std::endl;
-             return; // Avoid division by zero if std dev is effectively zero
-        }
-
-        // --- Calculate Z-Score ---
-        double current_zscore = (current_ratio - ratio_mean_) / ratio_stddev_;
-
-        // --- Determine Desired Signal State ---
-        PairSignal desired_signal = current_pair_signal_; // Assume no change initially
-
-        if (current_pair_signal_ == PairSignal::FLAT) {
-            // Entry conditions
-            if (current_zscore > entry_zscore_threshold_) {
-                desired_signal = PairSignal::SHORT_A_LONG_B; // Ratio is high, short A, long B
-            } else if (current_zscore < -entry_zscore_threshold_) {
-                desired_signal = PairSignal::LONG_A_SHORT_B; // Ratio is low, long A, short B
-            }
-        } else {
-            // Exit conditions (reversion towards mean)
-            if (current_pair_signal_ == PairSignal::SHORT_A_LONG_B && current_zscore < exit_zscore_threshold_) {
-                 desired_signal = PairSignal::FLAT; // Exit short A / long B spread
-            } else if (current_pair_signal_ == PairSignal::LONG_A_SHORT_B && current_zscore > -exit_zscore_threshold_) {
-                 desired_signal = PairSignal::FLAT; // Exit long A / short B spread
-            }
-        }
-
-        // --- Generate Orders if State Changes ---
-        if (desired_signal != current_pair_signal_) {
-            std::cout << "PAIRS (" << symbol_a_ << "/" << symbol_b_ << "): " << " @ " << formatTimestampUTC(event.timestamp)
-                      << " Ratio=" << current_ratio << " Mean=" << ratio_mean_ << " Z=" << current_zscore
-                      << " Signal=";
-            if(desired_signal == PairSignal::FLAT) std::cout << "FLAT";
-            else if(desired_signal == PairSignal::LONG_A_SHORT_B) std::cout << "LONG_A_SHORT_B";
-            else std::cout << "SHORT_A_LONG_B";
-            std::cout << std::endl;
-
-            // --- Calculate Order Quantities to reach target state ---
-            double target_qty_a = 0.0, target_qty_b = 0.0;
-            double current_qty_a = portfolio_->get_position_quantity(symbol_a_);
-            double current_qty_b = portfolio_->get_position_quantity(symbol_b_);
-
-            if (desired_signal == PairSignal::LONG_A_SHORT_B) {
-                target_qty_a = target_trade_dollar_value_ / price_a; // Approx shares for target $ value
-                target_qty_b = -target_trade_dollar_value_ / price_b;
-            } else if (desired_signal == PairSignal::SHORT_A_LONG_B) {
-                target_qty_a = -target_trade_dollar_value_ / price_a;
-                target_qty_b = target_trade_dollar_value_ / price_b;
-            } // else target is 0 for FLAT
-
-            double order_qty_a = target_qty_a - current_qty_a;
-            double order_qty_b = target_qty_b - current_qty_b;
-
-            // Send orders for each leg if needed
-            if (std::abs(order_qty_a) > 1e-9) { // Use a small tolerance
-                 OrderDirection dir_a = (order_qty_a > 0) ? OrderDirection::BUY : OrderDirection::SELL;
-                 std::cout << " -> Order A (" << symbol_a_ << "): " << std::abs(order_qty_a) << " " << (dir_a == OrderDirection::BUY ? "BUY" : "SELL") << std::endl;
-                 send_event(std::make_shared<OrderEvent>(event.timestamp, symbol_a_, OrderType::MARKET, dir_a, std::abs(order_qty_a)), queue);
-            }
-             if (std::abs(order_qty_b) > 1e-9) {
-                 OrderDirection dir_b = (order_qty_b > 0) ? OrderDirection::BUY : OrderDirection::SELL;
-                 std::cout << " -> Order B (" << symbol_b_ << "): " << std::abs(order_qty_b) << " " << (dir_b == OrderDirection::BUY ? "BUY" : "SELL") << std::endl;
-                 send_event(std::make_shared<OrderEvent>(event.timestamp, symbol_b_, OrderType::MARKET, dir_b, std::abs(order_qty_b)), queue);
+            switch (desired) {
+                case PairSignal::LONG_A_SHORT_B:
+                    target_a = +qa;
+                    target_b = -qb;
+                    break;
+                case PairSignal::SHORT_A_LONG_B:
+                    target_a = -qa;
+                    target_b = +qb;
+                    break;
+                case PairSignal::FLAT:
+                    // both zero
+                    break;
             }
 
-            current_pair_signal_ = desired_signal; // Update the state
-        } // end if signal changed
-    } // end handle_market_event
+            // Current positions
+            double cur_a = portfolio_->get_position_quantity(symbol_a_);
+            double cur_b = portfolio_->get_position_quantity(symbol_b_);
+            double da = target_a - cur_a;
+            double db = target_b - cur_b;
+
+            // Send leg A
+            if (std::abs(da) > EPS) {
+                send_event(std::make_shared<OrderEvent>(
+                    ev.timestamp,
+                    symbol_a_,
+                    OrderType::MARKET,
+                    da>0 ? OrderDirection::BUY : OrderDirection::SELL,
+                    std::abs(da)
+                ), queue);
+            }
+
+            // Send leg B
+            if (std::abs(db) > EPS) {
+                send_event(std::make_shared<OrderEvent>(
+                    ev.timestamp,
+                    symbol_b_,
+                    OrderType::MARKET,
+                    db>0 ? OrderDirection::BUY : OrderDirection::SELL,
+                    std::abs(db)
+                ), queue);
+            }
+
+            current_signal_ = desired;
+        }
+    }
+
+    // No special fill logic
+    void handle_fill_event(const FillEvent&, EventQueue&) override {}
+
+    std::string get_name() const override {
+        return "CitadelPairsTrading_" + symbol_a_ + "_" + symbol_b_;
+    }
 };

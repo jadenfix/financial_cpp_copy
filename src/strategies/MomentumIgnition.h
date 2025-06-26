@@ -5,144 +5,195 @@
 #include "core/EventQueue.h"
 #include "core/Utils.h"
 #include "core/Portfolio.h"
-#include <string>
-#include <map>
-#include <deque>    // For rolling windows
-#include <vector>
-#include <numeric>  // For std::accumulate
-#include <limits>   // For numeric_limits
+#include "data/PriceBar.h"
+
+#include <boost/circular_buffer.hpp>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
-#include <cmath>    // For std::abs
+#include <map>
+#include <numeric>
+#include <stdexcept>
+#include <string>
+
+#ifndef LOG_TRACE
+#define LOG_TRACE(fmt, ...) do{} while(0)
+#endif
 
 class MomentumIgnition : public Strategy {
 private:
-    // --- Parameters ---
-    size_t price_breakout_window_ = 5;   // Look back 5 bars for high/low breakout
-    size_t volume_avg_window_ = 10;  // Rolling average volume window
-    double volume_multiplier_ = 2.0;   // Volume must be > 2x average
-    size_t return_delta_window_ = 3;   // Look back 3 bars for positive/negative return delta
-    double target_position_size_ = 3.0;
+    //――――――――――――――――――――――――――――――――――
+    // 1) All your “magic numbers” here
+    static constexpr double EPS                    = 1e-12;
+    static constexpr size_t MIN_PRICE_WINDOW       = 1;
+    static constexpr size_t MIN_VOLUME_WINDOW      = 1;
+    static constexpr size_t MIN_RET_DELTA_WINDOW   = 1;
+    static constexpr double MIN_VOL_MULTIPLIER     = 1e-6;
+    static constexpr double MIN_TARGET_POSITION    = 1e-6;
 
-    // --- State per Symbol ---
+    //――――――――――――――――――――――――――――――――――
+    // 2) User parameters (validated & clamped)
+    const size_t price_breakout_window_;
+    const size_t volume_avg_window_;
+    const double volume_multiplier_;
+    const size_t return_delta_window_;
+    const double target_position_size_;
+    const size_t warmup_bars_;   // = max(window)+1
+
+    //――――――――――――――――――――――――――――――――――
+    // 3) Per-symbol state with fixed-size ring buffer
     struct SymbolState {
-        std::deque<PriceBar> history; // Store recent bars for price/volume/return checks
+        boost::circular_buffer<PriceBar> hist;
+        SignalDirection current_signal = SignalDirection::FLAT;
+
+        SymbolState(size_t max_hist) : hist(max_hist) {}
     };
-    std::map<std::string, SymbolState> symbol_state_;
-    std::map<std::string, SignalDirection> current_signal_state_;
+    std::map<std::string, SymbolState> states_;
+
+    //――――――――――――――――――――――――――――――――――
+    // 4) Helpers for each condition
+
+    // 4a) price breakout
+    static void calcHighLow(const boost::circular_buffer<PriceBar>& H,
+                            size_t window,
+                            double& outHigh,
+                            double& outLow)
+    {
+        auto start = H.end() - 1 - window;
+        auto finish = H.end() - 1; // exclude current bar
+        auto hi = std::max_element(start, finish,
+                                   [](auto &a, auto &b){ return a.High < b.High; });
+        auto lo = std::min_element(start, finish,
+                                   [](auto &a, auto &b){ return a.Low  < b.Low;  });
+        outHigh = hi->High;
+        outLow  = lo->Low;
+    }
+
+    // 4b) average volume
+    static double calcAvgVolume(const boost::circular_buffer<PriceBar>& H,
+                                size_t window)
+    {
+        auto start = H.end() - 1 - window;
+        auto finish = H.end() - 1;
+        double sum = std::accumulate(start, finish, 0.0,
+            [](double acc, auto &bar){ return acc + double(bar.Volume); });
+        return sum / window;
+    }
+
+    // 4c) sum of return deltas
+    static double calcReturnDelta(const boost::circular_buffer<PriceBar>& H,
+                                  size_t window)
+    {
+        double sum = 0.0;
+        auto it_end = H.end() - 1;
+        auto it_begin = it_end - window;
+        for (auto it = it_begin; it != it_end; ++it) {
+            double prev = std::prev(it)->Close;
+            if (prev > EPS) {
+                sum += (it->Close / prev) - 1.0;
+            }
+        }
+        return sum;
+    }
 
 public:
-    MomentumIgnition(size_t price_window = 5, size_t vol_window = 10, double vol_mult = 2.0, size_t ret_window = 3, double target_pos_size = 3.0)
-        : price_breakout_window_(price_window), volume_avg_window_(vol_window),
-          volume_multiplier_(vol_mult), return_delta_window_(ret_window), target_position_size_(target_pos_size)
+    MomentumIgnition(size_t price_window   = 5,
+                     size_t vol_window     = 10,
+                     double vol_mult       = 2.0,
+                     size_t ret_window     = 3,
+                     double target_pos_sz  = 3.0)
+      : price_breakout_window_( std::clamp(price_window, MIN_PRICE_WINDOW, price_window) )
+      , volume_avg_window_(    std::clamp(vol_window,   MIN_VOLUME_WINDOW,  vol_window)   )
+      , volume_multiplier_(    std::max(vol_mult,       MIN_VOL_MULTIPLIER)             )
+      , return_delta_window_(  std::clamp(ret_window,   MIN_RET_DELTA_WINDOW, ret_window)   )
+      , target_position_size_( std::max(target_pos_sz,  MIN_TARGET_POSITION)            )
+      , warmup_bars_(
+          1 + std::max({price_breakout_window_,
+                        volume_avg_window_,
+                        return_delta_window_})
+        )
     {
-        if (price_window == 0 || vol_window == 0 || vol_mult <= 0 || ret_window == 0 || target_pos_size <= 0) {
-             throw std::invalid_argument("Invalid parameters for MomentumIgnition");
+        if (price_window==0 || vol_window==0 || vol_mult<=0
+         || ret_window==0 || target_pos_sz<=0)
+        {
+            throw std::invalid_argument("MomentumIgnition: invalid constructor args");
         }
     }
 
-    void handle_market_event(const MarketEvent& event, EventQueue& queue) override {
+    void handle_market_event(const MarketEvent& ev,
+                             EventQueue& queue) override
+    {
         if (!portfolio_) return;
 
-        size_t max_lookback = std::max({price_breakout_window_, volume_avg_window_, return_delta_window_}) + 1; // Max history needed + current bar
-
-        for (const auto& pair : event.data) {
-            const std::string& symbol = pair.first;
-            const PriceBar& current_bar = pair.second;
-
-            // Initialize or update history
-            SymbolState& state = symbol_state_[symbol];
-            state.history.push_back(current_bar);
-            if (state.history.size() > max_lookback) {
-                state.history.pop_front();
+        for (auto const& [symbol, bar] : ev.data) {
+            // get-or-create
+            auto it = states_.find(symbol);
+            if (it == states_.end()) {
+                it = states_.emplace(
+                    symbol,
+                    SymbolState(warmup_bars_)
+                ).first;
             }
+            auto &st = it->second;
 
-            // Need enough history to perform calculations
-            if (state.history.size() < max_lookback) {
-                continue;
-            }
+            // 5) rolling history
+            st.hist.push_back(bar);
+            if (st.hist.size() < warmup_bars_) continue;  // warm-up
 
-            // --- Condition Checks ---
-            bool price_breakout_up = false;
-            bool price_breakout_down = false;
-            double recent_high = -std::numeric_limits<double>::max();
-            double recent_low = std::numeric_limits<double>::max();
-            // Check previous N bars (excluding current)
-            for (size_t i = 0; i < price_breakout_window_; ++i) {
-                 size_t index = state.history.size() - 2 - i; // Index of previous bars
-                 recent_high = std::max(recent_high, state.history[index].High);
-                 recent_low = std::min(recent_low, state.history[index].Low);
-            }
-            if (current_bar.Close > recent_high) price_breakout_up = true;
-            if (current_bar.Close < recent_low) price_breakout_down = true;
+            // 6) compute conditions
+            double high, low;
+            calcHighLow(  st.hist, price_breakout_window_, high, low);
+            bool breakout_up   = (bar.Close > high);
+            bool breakout_down = (bar.Close < low);
 
+            double avg_vol = calcAvgVolume(st.hist, volume_avg_window_);
+            bool   vol_surge= (avg_vol> EPS && bar.Volume > volume_multiplier_ * avg_vol);
 
-            double current_volume = static_cast<double>(current_bar.Volume);
-            double volume_sum = 0.0;
-            // Average volume of previous N bars
-             for (size_t i = 0; i < volume_avg_window_; ++i) {
-                 size_t index = state.history.size() - 2 - i;
-                 volume_sum += static_cast<double>(state.history[index].Volume);
-             }
-            double avg_volume = (volume_avg_window_ > 0) ? volume_sum / volume_avg_window_ : 0.0;
-            bool volume_surge = current_volume > (volume_multiplier_ * avg_volume) && avg_volume > 0; // Avoid division by zero
+            double ret_delta = calcReturnDelta(st.hist, return_delta_window_);
+            bool   pos_delta = (ret_delta>0);
+            bool   neg_delta = (ret_delta<0);
 
+            // 7) decide signal
+            SignalDirection want = SignalDirection::FLAT;
+            if (breakout_up && vol_surge && pos_delta)   want = SignalDirection::LONG;
+            if (breakout_down && vol_surge && neg_delta) want = SignalDirection::SHORT;
 
-            double return_delta = 0.0;
-            // Sum of returns over last N bars (including current)
-            if (state.history.size() >= return_delta_window_ + 1) { // Need N+1 bars for N returns
-                for (size_t i = 0; i < return_delta_window_; ++i) {
-                    size_t index_now = state.history.size() - 1 - i;
-                    size_t index_prev = index_now - 1;
-                    if (state.history[index_prev].Close > 1e-9) { // Avoid division by zero
-                         return_delta += (state.history[index_now].Close / state.history[index_prev].Close) - 1.0;
-                    }
+            // 8) emit orders if changed
+            if (want != st.current_signal) {
+                LOG_TRACE("MI: {} up={} down={} vsz={} rd={} -> {}",
+                          symbol,
+                          breakout_up, breakout_down,
+                          volume_multiplier_, ret_delta,
+                          (want==SignalDirection::LONG?"LONG":
+                           want==SignalDirection::SHORT?"SHORT":"FLAT"));
+
+                double target_qty = (want==SignalDirection::LONG
+                                      ? +target_position_size_
+                                      : want==SignalDirection::SHORT
+                                        ? -target_position_size_
+                                        : 0.0);
+
+                double cur_qty = portfolio_->get_position_quantity(symbol);
+                double delta   = target_qty - cur_qty;
+
+                if (std::abs(delta) > EPS) {
+                    auto dir = (delta>0
+                                ? OrderDirection::BUY
+                                : OrderDirection::SELL);
+                    send_event(std::make_shared<OrderEvent>(
+                                   ev.timestamp,
+                                   symbol,
+                                   OrderType::MARKET,
+                                   dir,
+                                   std::abs(delta)),
+                               queue);
                 }
+                st.current_signal = want;
             }
-            bool positive_delta = return_delta > 0;
-            bool negative_delta = return_delta < 0;
+        }
+    }
 
-
-            // --- Signal Logic ---
-            SignalDirection desired_signal = SignalDirection::FLAT;
-            if (price_breakout_up && volume_surge && positive_delta) {
-                desired_signal = SignalDirection::LONG;
-            } else if (price_breakout_down && volume_surge && negative_delta) {
-                desired_signal = SignalDirection::SHORT;
-            }
-             // Add exit logic? Currently only enters/flips.
-
-            // --- Generate Orders ---
-            if (desired_signal != current_signal_state_[symbol] && desired_signal != SignalDirection::FLAT) {
-                std::cout << "MOMENTUM IGNITION: " << symbol << " @ " << formatTimestampUTC(event.timestamp)
-                          << " PriceBreakUp=" << price_breakout_up << " PriceBreakDown=" << price_breakout_down
-                          << " VolSurge=" << volume_surge << " RetDelta=" << return_delta
-                          << " Signal=" << (desired_signal == SignalDirection::LONG ? "LONG" : "SHORT")
-                          << std::endl;
-
-                double target_quantity = (desired_signal == SignalDirection::LONG) ? target_position_size_ : -target_position_size_;
-                double current_quantity = portfolio_->get_position_quantity(symbol);
-                double order_quantity_needed = target_quantity - current_quantity;
-
-                if (std::abs(order_quantity_needed) > 1e-9) {
-                    OrderDirection direction = (order_quantity_needed > 0) ? OrderDirection::BUY : OrderDirection::SELL;
-                    double quantity_to_order = std::abs(order_quantity_needed);
-
-                    std::cout << " -> Target: " << target_quantity << ", Current: " << current_quantity
-                              << ", Order Qty: " << quantity_to_order << " " << (direction==OrderDirection::BUY?"BUY":"SELL") << std::endl;
-
-                    send_event(std::make_shared<OrderEvent>(event.timestamp, symbol, OrderType::MARKET, direction, quantity_to_order), queue);
-                    current_signal_state_[symbol] = desired_signal;
-                }
-            } else if (desired_signal == SignalDirection::FLAT && current_signal_state_[symbol] != SignalDirection::FLAT) {
-                // If conditions no longer met, flatten position
-                 double current_quantity = portfolio_->get_position_quantity(symbol);
-                 if (std::abs(current_quantity) > 1e-9) {
-                      std::cout << "MOMENTUM IGNITION EXIT: " << symbol << " @ " << formatTimestampUTC(event.timestamp) << " Flattening position." << std::endl;
-                      OrderDirection direction = (current_quantity > 0) ? OrderDirection::SELL : OrderDirection::BUY;
-                      send_event(std::make_shared<OrderEvent>(event.timestamp, symbol, OrderType::MARKET, direction, std::abs(current_quantity)), queue);
-                      current_signal_state_[symbol] = SignalDirection::FLAT;
-                 }
-            }
-        } // end loop over symbols
-    } // end handle_market_event
+    void handle_fill_event(const FillEvent&, EventQueue&) override {
+        // no state updates on fills
+    }
 };

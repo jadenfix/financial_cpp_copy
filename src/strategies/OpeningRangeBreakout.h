@@ -5,109 +5,253 @@
 #include "core/EventQueue.h"
 #include "core/Utils.h"
 #include "core/Portfolio.h"
-#include <string>
-#include <map>
+#include "data/PriceBar.h"
+
+#include <boost/circular_buffer.hpp>
+#include <algorithm>
 #include <chrono>
-#include <limits> // For numeric_limits
+#include <cmath>
 #include <iostream>
-#include <cmath> // For std::abs
+#include <limits>
+#include <map>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+
+#ifndef LOG_TRACE
+#define LOG_TRACE(fmt, ...) do{} while(0)
+#endif
 
 class OpeningRangeBreakout : public Strategy {
 private:
-    // --- Parameters ---
-    int opening_range_minutes_ = 30; // Duration of ORB period
-    double target_position_size_ = 3.0; // Reduced from 100 to 3 shares
-    // Add filter parameters later (e.g., volume multiplier)
+    //――――――――――――――――――――――――――――――――――
+    // 1) Magic‐numbers centralized
+    static constexpr double EPS                   = 1e-9;
+    static constexpr size_t MIN_RANGE_MINUTES     = 1;
+    static constexpr double MIN_POSITION_SIZE     = 1e-6;
+    static constexpr size_t MIN_VOL_WINDOW        = 1;
+    static constexpr double MIN_VOL_MULTIPLIER    = 1e-6;
+    static constexpr double DEFAULT_PROFIT_ATR_M  = 2.0;
+    static constexpr double DEFAULT_STOP_ATR_M    = 1.0;
 
-    // --- State per Symbol ---
+    //――――――――――――――――――――――――――――――――――
+    // 2) User parameters (validated & clamped)
+    const size_t opening_range_minutes_;
+    const double target_position_size_;
+    const size_t volume_avg_window_;
+    const double volume_multiplier_;
+    const double profit_target_atr_mult_;
+    const double stop_loss_atr_mult_;
+
+    // Derived
+    const size_t warmup_bars_;
+
+    //――――――――――――――――――――――――――――――――――
+    // 3) Per‐symbol state
     struct SymbolState {
-        std::chrono::system_clock::time_point start_time; // Market open time (approx)
-        double range_high = -std::numeric_limits<double>::max();
-        double range_low = std::numeric_limits<double>::max();
-        bool range_established = false;
+        // Opening range
+        std::chrono::system_clock::time_point start_time;
+        double range_high = -std::numeric_limits<double>::infinity();
+        double range_low  = std::numeric_limits<double>::infinity();
+        bool   range_established = false;
+
+        // Volume for filter
+        boost::circular_buffer<double> volume_hist;
+
+        // Position management
+        bool   position_open    = false;
+        double entry_price      = 0.0;
+        double trailing_stop    = NAN;
+        double profit_target    = NAN;
     };
-    std::map<std::string, SymbolState> symbol_state_;
-    std::map<std::string, SignalDirection> current_signal_state_; // Track LONG/SHORT/FLAT breakout state
+
+    std::map<std::string, SymbolState> states_;
+    std::mutex                         state_mutex_;
+
+    //――――――――――――――――――――――――――――――――――
+    // 4) Helpers
+
+    // Extract just the “time since start” in minutes
+    static int minutesSince(const std::chrono::system_clock::time_point& then,
+                            const std::chrono::system_clock::time_point& now)
+    {
+        using namespace std::chrono;
+        return duration_cast<minutes>(now - then).count();
+    }
+
+    // Reset state at new session
+    static void resetState(SymbolState& s,
+                           const std::chrono::system_clock::time_point& now)
+    {
+        s.start_time        = now;
+        s.range_high        = -std::numeric_limits<double>::infinity();
+        s.range_low         =  std::numeric_limits<double>::infinity();
+        s.range_established = false;
+        s.volume_hist.clear();
+        s.position_open     = false;
+        s.entry_price       = 0;
+        s.trailing_stop     = NAN;
+        s.profit_target     = NAN;
+    }
+
+    // Rolling average volume
+    static double avgVolume(const boost::circular_buffer<double>& buf) {
+        if (buf.empty()) return 0.0;
+        double sum = std::accumulate(buf.begin(), buf.end(), 0.0);
+        return sum / double(buf.size());
+    }
+
+    // True Range for bar
+    static double trueRange(const PriceBar& bar, double prev_close) {
+        if (prev_close <= 0) return bar.High - bar.Low;
+        double a = bar.High - bar.Low;
+        double b = std::abs(bar.High - prev_close);
+        double c = std::abs(bar.Low  - prev_close);
+        return std::max({a,b,c});
+    }
 
 public:
-    OpeningRangeBreakout(int range_minutes = 30, double target_pos_size = 3.0) // Changed from 100 to 3
-        : opening_range_minutes_(range_minutes), target_position_size_(target_pos_size)
+    OpeningRangeBreakout(int range_minutes = 30,
+                        double target_size   = 3.0,
+                        int vol_window       = 10,
+                        double vol_mult      = 2.0,
+                        double profit_atr_m  = DEFAULT_PROFIT_ATR_M,
+                        double stop_atr_m    = DEFAULT_STOP_ATR_M)
+      : opening_range_minutes_( std::clamp(range_minutes, int(MIN_RANGE_MINUTES), range_minutes) )
+      , target_position_size_( std::max(target_size, MIN_POSITION_SIZE) )
+      , volume_avg_window_( std::clamp(vol_window, int(MIN_VOL_WINDOW), vol_window) )
+      , volume_multiplier_( std::max(vol_mult, MIN_VOL_MULTIPLIER) )
+      , profit_target_atr_mult_( std::max(profit_atr_m, 0.0) )
+      , stop_loss_atr_mult_( std::max(stop_atr_m,   0.0) )
+      , warmup_bars_( opening_range_minutes_ + 1 )
     {
-        if (opening_range_minutes_ <= 0 || target_pos_size <= 0) {
-             throw std::invalid_argument("Invalid parameters for OpeningRangeBreakout");
+        if (opening_range_minutes_ <= 0
+         || target_position_size_ <= 0
+         || volume_avg_window_   <= 0)
+        {
+            throw std::invalid_argument("Invalid OpeningRangeBreakout parameters");
         }
     }
 
-    void handle_market_event(const MarketEvent& event, EventQueue& queue) override {
+    void handle_market_event(const MarketEvent& ev,
+                             EventQueue& queue) override
+    {
+        std::lock_guard<std::mutex> lk(state_mutex_);
         if (!portfolio_) return;
 
-        auto current_timestamp = event.timestamp;
+        for (auto const& [symbol, bar] : ev.data) {
+            auto &st = states_.try_emplace(
+                symbol,
+                SymbolState{ev.timestamp,
+                            -std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::infinity(),
+                             false,
+                             boost::circular_buffer<double>(volume_avg_window_),
+                             false, 0, NAN, NAN}
+            ).first->second;
 
-        for (const auto& pair : event.data) {
-            const std::string& symbol = pair.first;
-            const PriceBar& bar = pair.second;
-
-            // Initialize state (detects first bar for the symbol)
-            if (symbol_state_.find(symbol) == symbol_state_.end()) {
-                symbol_state_[symbol].start_time = current_timestamp;
-                symbol_state_[symbol].range_high = bar.High; // Initial range
-                symbol_state_[symbol].range_low = bar.Low;
-                current_signal_state_[symbol] = SignalDirection::FLAT;
+            // 1) New session detection: if clock went backwards or >24h, reset
+            if ((ev.timestamp < st.start_time) ||
+                (minutesSince(st.start_time, ev.timestamp) > 24*60))
+            {
+                resetState(st, ev.timestamp);
             }
 
-            SymbolState& state = symbol_state_[symbol];
-            auto time_since_start = std::chrono::duration_cast<std::chrono::minutes>(current_timestamp - state.start_time);
+            // 2) Warm-up volume history
+            st.volume_hist.push_back(double(bar.Volume));
 
-            // --- Phase 1: Establish Opening Range ---
-            if (!state.range_established) {
-                if (time_since_start.count() <= opening_range_minutes_) {
-                    // Update range high and low during the period
-                    state.range_high = std::max(state.range_high, bar.High);
-                    state.range_low = std::min(state.range_low, bar.Low);
-                } else {
-                    // Opening range period finished
-                    state.range_established = true;
-                    std::cout << "ORB ESTABLISHED: " << symbol << " @ " << formatTimestampUTC(current_timestamp)
-                              << " High=" << state.range_high << " Low=" << state.range_low << std::endl;
-                }
+            // 3) Build opening range
+            int mins = minutesSince(st.start_time, ev.timestamp);
+            if (!st.range_established && mins <= int(opening_range_minutes_)) {
+                st.range_high = std::max(st.range_high, bar.High);
+                st.range_low  = std::min(st.range_low,  bar.Low);
+                continue;
+            }
+            if (!st.range_established) {
+                st.range_established = true;
+                std::cout << "ORB ESTABLISHED: " << symbol << " @ "
+                          << formatTimestampUTC(ev.timestamp)
+                          << " H=" << st.range_high
+                          << " L=" << st.range_low << "\n";
             }
 
-            // --- Phase 2: Trade Breakouts ---
-            if (state.range_established) {
-                SignalDirection desired_signal = current_signal_state_[symbol]; // Default to current state
+            // 4) On each new bar AFTER range is set:
+            double prev_close = st.entry_price>0 ? st.entry_price : bar.Open;
+            double tr = trueRange(bar, prev_close);
+            double avg_vol = avgVolume(st.volume_hist);
+            bool  volume_ok = (avg_vol>EPS && bar.Volume > volume_multiplier_*avg_vol);
 
-                // Check for breakout
-                if (bar.Close > state.range_high) {
-                    desired_signal = SignalDirection::LONG;
-                } else if (bar.Close < state.range_low) {
-                    desired_signal = SignalDirection::SHORT;
-                }
-                // Note: No exit logic defined here (e.g., EOD close, trailing stop) - only entries/flips
+            // 5) Entry logic
+            if (!st.position_open && volume_ok) {
+                SignalDirection want = SignalDirection::FLAT;
+                if (bar.Close > st.range_high) want = SignalDirection::LONG;
+                if (bar.Close < st.range_low)  want = SignalDirection::SHORT;
 
-                // --- Generate Orders ---
-                if (desired_signal != current_signal_state_[symbol] && desired_signal != SignalDirection::FLAT) {
-                    // Only trade on the *first* breakout signal after range established
-                     std::cout << "ORB BREAKOUT: " << symbol << " @ " << formatTimestampUTC(event.timestamp)
-                               << " Close=" << bar.Close << " Range=[" << state.range_low << ", " << state.range_high << "]"
-                               << " Signal=" << (desired_signal == SignalDirection::LONG ? "LONG" : "SHORT")
-                               << std::endl;
+                if (want != SignalDirection::FLAT) {
+                    // compute ATR for sizing/stop
+                    double atr = calculate_atr({bar}, 14);  // or your Utils::calcATR
+                    st.profit_target = bar.Close + want==SignalDirection::LONG
+                        ? profit_target_atr_mult_*atr
+                        : -profit_target_atr_mult_*atr;
+                    st.trailing_stop = bar.Close - want==SignalDirection::LONG
+                        ? stop_loss_atr_mult_*atr
+                        : -stop_loss_atr_mult_*atr;
 
-                    double target_quantity = (desired_signal == SignalDirection::LONG) ? target_position_size_ : -target_position_size_;
-                    double current_quantity = portfolio_->get_position_quantity(symbol);
-                    double order_quantity_needed = target_quantity - current_quantity;
-
-                    if (std::abs(order_quantity_needed) > 1e-9) {
-                        OrderDirection direction = (order_quantity_needed > 0) ? OrderDirection::BUY : OrderDirection::SELL;
-                        double quantity_to_order = std::abs(order_quantity_needed);
-
-                         std::cout << " -> Target: " << target_quantity << ", Current: " << current_quantity
-                                   << ", Order Qty: " << quantity_to_order << " " << (direction==OrderDirection::BUY?"BUY":"SELL") << std::endl;
-
-                        send_event(std::make_shared<OrderEvent>(event.timestamp, symbol, OrderType::MARKET, direction, quantity_to_order), queue);
-                        current_signal_state_[symbol] = desired_signal; // Update state only after sending order
+                    double qty = (want==SignalDirection::LONG? +target_position_size_ : -target_position_size_);
+                    double cur = portfolio_->get_position_quantity(symbol);
+                    double delta = qty - cur;
+                    if (std::abs(delta)>EPS) {
+                        send_event(std::make_shared<OrderEvent>(
+                                       ev.timestamp, symbol,
+                                       OrderType::MARKET,
+                                       delta>0?OrderDirection::BUY:OrderDirection::SELL,
+                                       std::abs(delta)),
+                                   queue);
+                        st.position_open = true;
+                        st.entry_price   = bar.Close;
+                        st.current_signal = want;
+                        LOG_TRACE("ORB ENTRY: {} {} at {} qty={}", symbol,
+                                  (want==SignalDirection::LONG?"LONG":"SHORT"),
+                                  bar.Close, qty);
                     }
-                 }
-             } // end if range established
-         } // end loop over symbols
-     } // end handle_market_event
+                }
+            }
+
+            // 6) Exit logic: profit target, trailing stop, or EOD
+            if (st.position_open) {
+                double pos = portfolio_->get_position_quantity(symbol);
+                bool exit = false;
+                if (pos>0) {
+                    if (bar.High  >= st.profit_target) exit = true;
+                    if (bar.Low   <= st.trailing_stop) exit = true;
+                } else if (pos<0) {
+                    if (bar.Low   <= st.profit_target) exit = true;
+                    if (bar.High  >= st.trailing_stop) exit = true;
+                }
+                // EOD exit: >1h before midnight
+                int mins_since = minutesSince(st.start_time, ev.timestamp);
+                if (mins_since > (24*60 - 60)) exit = true;
+
+                if (exit) {
+                    send_event(std::make_shared<OrderEvent>(
+                                   ev.timestamp, symbol,
+                                   OrderType::MARKET,
+                                   pos>0?OrderDirection::SELL:OrderDirection::BUY,
+                                   std::abs(pos)),
+                               queue);
+                    st.position_open = false;
+                    st.current_signal = SignalDirection::FLAT;
+                    LOG_TRACE("ORB EXIT: {} pos={} at {}", symbol, pos, bar.Close);
+                }
+            }
+        }
+    }
+
+    void handle_fill_event(const FillEvent&, EventQueue&) override {
+        // no-op
+    }
+
+    std::string get_name() const override {
+        return "RobustOpeningRangeBreakout";
+    }
 };
