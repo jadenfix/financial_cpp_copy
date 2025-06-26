@@ -1,0 +1,8 @@
+
+        // === 10. BUY AND HOLD STRATEGIES (Baseline Comparison) ===
+        available_strategies_this_iteration.push_back({"BuyHold_Conservative", [](){ return std::make_unique<BuyAndHoldStrategy>(0.90); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"BuyHold_Aggressive", [](){ return std::make_unique<BuyAndHoldStrategy>(0.98); }, {"stocks_april", "2024_only", "2024_2025"}});
+
+        // === 11. ENSEMBLE RL MULTI-ALPHA STRATEGY (Ultra-Robust AI) ===
+        available_strategies_this_iteration.push_back({"EnsembleRL_Adaptive", [](){ return std::make_unique<EnsembleRLStrategy>(); }, {"stocks_april", "2024_only", "2024_2025"}});
+

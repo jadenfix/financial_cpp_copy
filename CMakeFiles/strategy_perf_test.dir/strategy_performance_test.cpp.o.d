@@ -813,12 +813,12 @@ CMakeFiles/strategy_perf_test.dir/strategy_performance_test.cpp.o: \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/path_iterator.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/recursive_directory_iterator.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/u8path.h \
-  /Users/jadenfix/financial_cpp_copy/src/data/PriceBar.h \
-  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/sstream \
-  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/iostream \
-  /Users/jadenfix/financial_cpp_copy/src/core/Event.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/map \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/__tree \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/sstream \
+  /Users/jadenfix/financial_cpp_copy/src/data/PriceBar.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/iostream \
+  /Users/jadenfix/financial_cpp_copy/src/core/Event.h \
   /Users/jadenfix/financial_cpp_copy/src/strategies/MovingAverageCrossover.h \
   /Users/jadenfix/financial_cpp_copy/src/strategies/Strategy.h \
   /Users/jadenfix/financial_cpp_copy/src/strategies/../core/Event.h \

@@ -1,0 +1,30 @@
+[ 12%] Building CXX object CMakeFiles/trading_system_lib.dir/src/data/DataManager.cpp.o
+[ 25%] Linking CXX static library libtrading_system_lib.a
+[ 25%] Built target trading_system_lib
+[ 37%] Building CXX object CMakeFiles/trading_system.dir/src/main.cpp.o
+In file included from /Users/jadenfix/financial_cpp_copy/src/main.cpp:6:
+/Users/jadenfix/financial_cpp_copy/src/strategies/OpeningRangeBreakout.h:181:20: warning: unused variable 'tr' [-Wunused-variable]
+  181 |             double tr = trueRange(bar, prev_close);
+      |                    ^~
+/Users/jadenfix/financial_cpp_copy/src/strategies/OpeningRangeBreakout.h:47:18: warning: private field 'warmup_bars_' is not used [-Wunused-private-field]
+   47 |     const size_t warmup_bars_;
+      |                  ^
+In file included from /Users/jadenfix/financial_cpp_copy/src/main.cpp:12:
+/Users/jadenfix/financial_cpp_copy/src/strategies/AdaptiveMeanReversion.h:40:12: warning: private field 'regime_window_' is not used [-Wunused-private-field]
+   40 |     size_t regime_window_    = 30;
+      |            ^
+/Users/jadenfix/financial_cpp_copy/src/strategies/AdaptiveMeanReversion.h:41:12: warning: private field 'trend_threshold_' is not used [-Wunused-private-field]
+   41 |     double trend_threshold_  = 0.1;
+      |            ^
+/Users/jadenfix/financial_cpp_copy/src/strategies/AdaptiveMeanReversion.h:55:12: warning: private field 'bid_ask_spread_estimate_' is not used [-Wunused-private-field]
+   55 |     double bid_ask_spread_estimate_ = 0.001;
+      |            ^
+5 warnings generated.
+[ 50%] Linking CXX executable trading_system
+[ 50%] Built target trading_system
+[ 62%] Building CXX object CMakeFiles/test_integrity.dir/test_data_integrity.cpp.o
+[ 75%] Linking CXX executable test_integrity
+[ 75%] Built target test_integrity
+[ 87%] Building CXX object CMakeFiles/strategy_perf_test.dir/strategy_performance_test.cpp.o
+[100%] Linking CXX executable strategy_perf_test
+[100%] Built target strategy_perf_test

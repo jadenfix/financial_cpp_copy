@@ -166,7 +166,7 @@ public:
       , price_history_(lookback_period_*2)
       , volume_history_(lookback_period_)
       , returns_(lookback_period_)
-      , regime_indicators_(regime_window_)
+      , regime_indicators_(20) // Use default window size of 20
     {
         warmup_period_ = std::max(lookback_period_, size_t(100));
         // no further resize needed—circular_buffer is fixed

@@ -10,6 +10,9 @@
 #include "strategies/AdvancedMomentum.h"
 #include "strategies/StatisticalArbitrage.h"
 #include "strategies/AdaptiveMeanReversion.h"
+#include "strategies/LogisticRegressionStrategy.h"
+#include "strategies/BuyAndHold.h"
+#include "strategies/EnsembleRLStrategy.h"
 
 #include <iostream>
 #include <string>
@@ -81,7 +84,7 @@ int main(int argc, char* argv[]) {
 
     // --- UPDATED TITLE ---
     std::cout << "--- HFT Backtesting System - COMPREHENSIVE Multi-Strategy & Multi-Dataset Testing ---" << std::endl;
-    std::cout << "--- Running ALL 8 Algorithmic Trading Strategy Types with Multiple Variants ---" << std::endl;
+    std::cout << "--- Running ALL 9 Algorithmic Trading Strategy Types with Machine Learning ---" << std::endl;
 
     // --- Configuration ---
     std::string data_base_dir = "data";
@@ -163,11 +166,11 @@ int main(int argc, char* argv[]) {
         std::vector<StrategyConfig> available_strategies_this_iteration;
 
         // === 1. MOVING AVERAGE CROSSOVER STRATEGIES (Multiple variants) ===
-        // Reduced from 100 to 5 shares to prevent over-leveraging
-        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        // Optimized with reduced warmup periods for faster signal generation
+        available_strategies_this_iteration.push_back({"MACrossover_5_20", [](){ return std::make_unique<MovingAverageCrossover>(5, 20, 5.0, 5000.0, 14, 20, 25); }, {"stocks_april", "2024_only", "2024_2025"}});
         available_strategies_this_iteration.push_back({"MACrossover_10_50", [](){ return std::make_unique<MovingAverageCrossover>(10, 50, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
         available_strategies_this_iteration.push_back({"MACrossover_20_100", [](){ return std::make_unique<MovingAverageCrossover>(20, 100, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
-        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 5.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"MACrossover_3_15", [](){ return std::make_unique<MovingAverageCrossover>(3, 15, 5.0, 5000.0, 14, 20, 20); }, {"stocks_april", "2024_only", "2024_2025"}});
 
         // === 2. VWAP REVERSION STRATEGIES (Multiple thresholds, CONSERVATIVE sizing) ===
         // Reduced from 100 to 3 shares, increased deviation multipliers to reduce trade frequency
@@ -256,6 +259,29 @@ int main(int argc, char* argv[]) {
         available_strategies_this_iteration.push_back({"AdaptiveMeanRev_Conservative", [](){ return std::make_unique<AdaptiveMeanReversion>(60, 2.5, 2500.0); }, {"stocks_april", "2024_only", "2024_2025"}});
         available_strategies_this_iteration.push_back({"AdaptiveMeanRev_Aggressive", [](){ return std::make_unique<AdaptiveMeanReversion>(40, 2.0, 3000.0); }, {"stocks_april", "2024_only", "2024_2025"}});
         available_strategies_this_iteration.push_back({"AdaptiveMeanRev_UltraConservative", [](){ return std::make_unique<AdaptiveMeanReversion>(80, 3.0, 2000.0); }, {"stocks_april", "2024_only", "2024_2025"}});
+
+        // === 10. BUY AND HOLD STRATEGIES (Baseline Comparison) ===
+        available_strategies_this_iteration.push_back({"BuyHold_Conservative", [](){ return std::make_unique<BuyAndHoldStrategy>(0.90); }, {"stocks_april", "2024_only", "2024_2025"}});
+        available_strategies_this_iteration.push_back({"BuyHold_Aggressive", [](){ return std::make_unique<BuyAndHoldStrategy>(0.98); }, {"stocks_april", "2024_only", "2024_2025"}});
+
+        // === 11. ENSEMBLE RL MULTI-ALPHA STRATEGY (Ultra-Robust AI) ===
+        available_strategies_this_iteration.push_back({"EnsembleRL_Adaptive", [](){ return std::make_unique<EnsembleRLStrategy>(); }, {"stocks_april", "2024_only", "2024_2025"}});
+
+        // === 9. MACHINE LEARNING LOGISTIC REGRESSION STRATEGIES ===
+        // Using different data sources for training across datasets
+        if (target_dataset_subdir == "stocks_april") {
+            available_strategies_this_iteration.push_back({"MLLogistic_MSFT", [](){ return std::make_unique<LogisticRegressionStrategy>("data/stocks_april/quant_seconds_data_MSFT.csv"); }, {"stocks_april"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_NVDA", [](){ return std::make_unique<LogisticRegressionStrategy>("data/stocks_april/quant_seconds_data_NVDA.csv"); }, {"stocks_april"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_GOOG", [](){ return std::make_unique<LogisticRegressionStrategy>("data/stocks_april/quant_seconds_data_google.csv"); }, {"stocks_april"}});
+        } else if (target_dataset_subdir == "2024_only") {
+            available_strategies_this_iteration.push_back({"MLLogistic_BTC", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_only/btc_2024_data.csv"); }, {"2024_only"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_ETH", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_only/eth_2024_data.csv"); }, {"2024_only"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_SOL", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_only/sol_2024_data.csv"); }, {"2024_only"}});
+        } else if (target_dataset_subdir == "2024_2025") {
+            available_strategies_this_iteration.push_back({"MLLogistic_BTC_Extended", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_2025/2024_to_april_2025_btc_data.csv"); }, {"2024_2025"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_ETH_Extended", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_2025/2024_to_april_2025_eth_data.csv"); }, {"2024_2025"}});
+            available_strategies_this_iteration.push_back({"MLLogistic_SOL_Extended", [](){ return std::make_unique<LogisticRegressionStrategy>("data/2024_2025/2024_to_april_2025_solana_data.csv"); }, {"2024_2025"}});
+        }
 
         // === 7. STATISTICAL ARBITRAGE STRATEGIES (Advanced mean reversion) ===
         
