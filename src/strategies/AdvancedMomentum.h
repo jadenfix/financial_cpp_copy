@@ -138,7 +138,7 @@ public:
                 st.bars.push_back(bar);
                 st.closes.push_back(bar.Close);
                 if (st.bars.size()>1) {
-                    double prev = std::prev(st.bars.end(),2)->Close;
+                    double prev = st.bars[st.bars.size() - 2].Close;
                     double r = (prev<EPS?0.0:std::log(bar.Close/prev));
                     st.rets.push_back(r);
                 }
@@ -149,7 +149,7 @@ public:
             st.bars.push_back(bar);
             st.closes.push_back(bar.Close);
             {
-                double prev = std::prev(st.bars.end(),2)->Close;
+                double prev = st.bars[st.bars.size() - 2].Close;
                 double r = (prev<EPS?0.0:std::log(bar.Close/prev));
                 st.rets.push_back(r);
             }

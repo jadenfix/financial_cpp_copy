@@ -136,3 +136,7 @@ target_include_directories(test_integrity PRIVATE src ${CSV2_INCLUDE_DIR})
 add_executable(strategy_perf_test strategy_performance_test.cpp)
 target_link_libraries(strategy_perf_test PRIVATE trading_system_lib)
 target_include_directories(strategy_perf_test PRIVATE src ${CSV2_INCLUDE_DIR})
+# Dependency-free rolling history regression.
+enable_testing()
+add_executable(test_circular_buffer test_circular_buffer.cpp)
+add_test(NAME circular_buffer COMMAND test_circular_buffer)

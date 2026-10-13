@@ -9,6 +9,7 @@
 #include <deque>
 #include <algorithm>
 #include <iterator>
+#include <stdexcept>
 
 // Simple circular buffer replacement for boost::circular_buffer
 template<typename T>
@@ -25,6 +26,7 @@ public:
     using const_iterator = typename std::vector<T>::const_iterator;
 
     explicit circular_buffer(size_t capacity) : capacity_(capacity) {
+        if (capacity == 0) throw std::invalid_argument("circular_buffer capacity must be positive");
         buffer_.resize(capacity);
     }
 
@@ -87,7 +89,7 @@ public:
         size_t index_;
         
     public:
-        using iterator_category = std::forward_iterator_tag;
+        using iterator_category = std::bidirectional_iterator_tag;
         using value_type = T;
         using difference_type = std::ptrdiff_t;
         using pointer = const T*;
@@ -112,6 +114,17 @@ public:
             const_circular_iterator tmp = *this; 
             ++index_; 
             return tmp; 
+        }
+
+        const_circular_iterator& operator--() {
+            --index_;
+            return *this;
+        }
+
+        const_circular_iterator operator--(int) {
+            const_circular_iterator tmp = *this;
+            --index_;
+            return tmp;
         }
 
         bool operator==(const const_circular_iterator& other) const {

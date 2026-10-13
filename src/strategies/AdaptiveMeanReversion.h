@@ -195,8 +195,7 @@ public:
 
         // compute 1-period return
         if (price_history_.size()>1) {
-            auto it = price_history_.end();
-            double prev = *std::prev(it,2);
+            double prev = price_history_[price_history_.size() - 2];
             returns_.push_back((mid - prev)/std::max(prev,EPS));
         }
 
