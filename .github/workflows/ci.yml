@@ -1,0 +1,12 @@
+name: Portable backtester validation
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make all test
+      - run: make smoke
+        timeout-minutes: 2

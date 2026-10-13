@@ -1,3 +1,12 @@
+## Portable validation
+
+`make all test` builds the backtester from source using a C++17 compiler and runs
+a deterministic circular-buffer regression. `make smoke` caps each input CSV at
+100 rows for a short integration run. This Makefile replaces generated build
+paths tied to one developer's macOS checkout. CMake remains available through
+`cmake -S . -B build-cmake` and `cmake --build build-cmake`; `ctest --test-dir
+build-cmake` runs the circular-buffer regression.
+
 # High-Frequency Trading Backtesting System (C++17)
 
 A sophisticated, quantitative-focused backtesting engine for high-frequency trading strategies with advanced risk management, regime detection, and streaming data capabilities.
