@@ -7,6 +7,30 @@ paths tied to one developer's macOS checkout. CMake remains available through
 `cmake -S . -B build-cmake` and `cmake --build build-cmake`; `ctest --test-dir
 build-cmake` runs the circular-buffer regression.
 
+## Verified workflow demo
+
+[![Historical CSV backtest demo](demo/financial_cpp_copy_demo.gif)](demo/financial_cpp_copy_demo.mp4)
+
+This demo is generated from the repository's real C++ executable and bundled
+CSV files. It shows a clean source build, the circular-buffer regression, and a
+bounded `--max-rows=100` simulation across the three bundled data groups. The
+figures shown are **historical CSV backtest output**, not live trading results.
+They do not establish profitability, execution latency, or future performance.
+
+Reproduce and verify the receipt:
+
+```bash
+make all test smoke
+make demo       # requires Python/Pillow and ffmpeg
+make demo-verify
+```
+
+The checked-in [capture receipt](demo/capture.json) records the source commit,
+commands, parsed values, output digest, media digests, and a checked poster
+frame (`demo/preview.png`). A 44-file
+[source manifest](demo/source-manifest.tsv) pins the exact C++/CSV runtime
+inputs; CI rejects source drift or damaged media.
+
 # High-Frequency Trading Backtesting System (C++17)
 
 A sophisticated, quantitative-focused backtesting engine for high-frequency trading strategies with advanced risk management, regime detection, and streaming data capabilities.

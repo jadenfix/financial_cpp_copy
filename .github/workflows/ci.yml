@@ -10,3 +10,7 @@ jobs:
       - run: make all test
       - run: make smoke
         timeout-minutes: 2
+      - name: Install media verifier
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Verify demo provenance and media
+        run: make demo-verify
