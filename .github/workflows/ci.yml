@@ -10,3 +10,5 @@ jobs:
       - run: make all test
       - run: make smoke
         timeout-minutes: 2
+      - name: Verify demo provenance and media
+        run: make demo-verify

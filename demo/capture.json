@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-13T06:35:58+00:00",
+  "source_commit": "162e50d9f0a95e6cfd8684d1dfbf4f6ae5764e09",
+  "source_manifest": {
+    "path": "demo/source-manifest.tsv",
+    "input_count": 44,
+    "sha256": "9824d44e5afeb1da82b0d96facc5b7f43c644acab11c291980277bc767a0f1c9"
+  },
+  "scope": {
+    "mode": "historical CSV backtest simulation",
+    "row_cap": 100,
+    "live_trading": false,
+    "profit_or_latency_guarantee": false
+  },
+  "commands": [
+    "make clean all test",
+    "./build/trading_system --max-rows=100"
+  ],
+  "command_results": {
+    "build_and_test_exit_code": 0,
+    "smoke_exit_code": 0,
+    "smoke_stdout_sha256": "fb67480179dde65c386ae61f1de9f9dcd43a1869d2f63f9d354f61a7ebfc743f",
+    "smoke_stdout_lines": 5101
+  },
+  "observed": {
+    "datasets": {
+      "stocks_april": [
+        {
+          "symbol": "GOOG",
+          "rows": 100
+        },
+        {
+          "symbol": "MSFT",
+          "rows": 100
+        },
+        {
+          "symbol": "NVDA",
+          "rows": 100
+        }
+      ],
+      "2024_only": [
+        {
+          "symbol": "ada",
+          "rows": 100
+        },
+        {
+          "symbol": "eth",
+          "rows": 100
+        },
+        {
+          "symbol": "sol",
+          "rows": 100
+        },
+        {
+          "symbol": "btc",
+          "rows": 100
+        }
+      ],
+      "2024_2025": [
+        {
+          "symbol": "eth",
+          "rows": 100
+        },
+        {
+          "symbol": "ada",
+          "rows": 100
+        },
+        {
+          "symbol": "btc",
+          "rows": 100
+        },
+        {
+          "symbol": "solana",
+          "rows": 100
+        }
+      ]
+    },
+    "strategy_counts": {
+      "stocks_april": 36,
+      "2024_only": 37,
+      "2024_2025": 37
+    },
+    "total_strategy_runs": 110,
+    "selected_results": {
+      "MACrossover_10_50_on_stocks_april": {
+        "return_percent": -0.0,
+        "max_drawdown_percent": 0.01,
+        "realized_pnl": -3.64,
+        "commission": 7.0,
+        "fills": 7,
+        "final_equity": 99998.08
+      },
+      "StatArb_BTC_ETH_Aggressive_on_2024_only": {
+        "return_percent": -0.03,
+        "max_drawdown_percent": 0.03,
+        "realized_pnl": -21.35,
+        "commission": 4.0,
+        "fills": 4,
+        "final_equity": 99974.65
+      },
+      "StatArb_NVDA_GOOG_Aggressive_on_stocks_april": {
+        "return_percent": 0.13,
+        "max_drawdown_percent": 0.08,
+        "realized_pnl": 128.31,
+        "commission": 21.17,
+        "fills": 4,
+        "final_equity": 100130.84
+      }
+    },
+    "queued_orders": 279,
+    "simulated_fills": 260,
+    "completed": true
+  },
+  "artifacts": {
+    "financial_cpp_copy_demo.gif": {
+      "sha256": "d5e12ff454fa993d3ccb54e233faca812ddabdd4ca0afaa4bba47e9a7c9dd9df",
+      "bytes": 258306,
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "gif",
+            "width": 1280,
+            "height": 720,
+            "nb_frames": "6"
+          }
+        ],
+        "format": {
+          "duration": "18.500000"
+        }
+      }
+    },
+    "financial_cpp_copy_demo.mp4": {
+      "sha256": "e1d5bc895d8c8e01ae1b30c4581fb61f1f43b473fad3cddaf3223b8c7f5707f7",
+      "bytes": 266214,
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "nb_frames": "444"
+          }
+        ],
+        "format": {
+          "duration": "18.500000"
+        }
+      }
+    }
+  },
+  "preview": {
+    "path": "preview.png",
+    "sha256": "1d0bdb42f7bf8e00e953ba36f890a5649901bb97674217509757119620f4988b",
+    "bytes": 59111
+  }
+}
